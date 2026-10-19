@@ -71,7 +71,7 @@
                 "Home/bench",
                 "serial"
             ],
-            "Command": "ssh -o GlobalKnownHostsFile=/dev/null -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no -A -X -Y -t root@192.0.2.19 picocom -b 115200 /dev/serial/by-id/usb-FTDI_FT232R_USB_UART_A10K1234-if00-port0",
+            "Command": "ssh -o GlobalKnownHostsFile=/dev/null -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no -A -X -Y -t root@192.0.2.19 'dev=/dev/serial/by-id/usb-FTDI_FT232R_USB_UART_A10K1234-if00-port0; pids=$(fuser \"$dev\" 2>/dev/null); if [ -n \"$pids\" ]; then echo \"$dev is in use by:\"; ps -fp $pids 2>/dev/null || echo \"PIDs:$pids\"; else picocom -b 115200 \"$dev\" && exit; fi; printf \"\\nPress Enter to close... \"; read -r _'",
             "Close Sessions On End": 1
         },
         {
@@ -83,7 +83,7 @@
                 "Home/bench",
                 "serial"
             ],
-            "Command": "ssh -o GlobalKnownHostsFile=/dev/null -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no -A -X -Y -t root@192.0.2.19 picocom -b 1500000 --imap lfcrlf /dev/ttyUSB1",
+            "Command": "ssh -o GlobalKnownHostsFile=/dev/null -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no -A -X -Y -t root@192.0.2.19 'dev=/dev/ttyUSB1; pids=$(fuser \"$dev\" 2>/dev/null); if [ -n \"$pids\" ]; then echo \"$dev is in use by:\"; ps -fp $pids 2>/dev/null || echo \"PIDs:$pids\"; else picocom -b 1500000 --imap lfcrlf \"$dev\" && exit; fi; printf \"\\nPress Enter to close... \"; read -r _'",
             "Close Sessions On End": 1
         },
         {

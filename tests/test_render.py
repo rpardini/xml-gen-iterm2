@@ -6,9 +6,9 @@ import shlex
 
 import pytest
 
-from xml_gen_iterm2.model import Kind, Profile
+from xml_gen_iterm2.model import Kind, Profile, Serial
 from xml_gen_iterm2.parse import ConfigError, parse_bytes, parse_file
-from xml_gen_iterm2.render import bash_c, render, to_json
+from xml_gen_iterm2.render import bash_c, picocom_script, render, to_json
 
 from conftest import EXAMPLE, EXPECTED
 
@@ -67,16 +67,17 @@ def test_serial_target_uses_adapters_chain() -> None:
         '<host name="rpi" ip="3.3.3.3"/></serial></host></host>'
     )
     proxy = "-o ProxyCommand='ssh -q -W %h:%p root@1.1.1.1'"
-    assert p["rpi serial via x13s"].command == (
-        f"ssh -q {proxy} -t pi@2.2.2.2 picocom -b 115200 --quiet '/dev/serial/by-id/usb with space'"
-    )
+    remote = shlex.split(p["rpi serial via x13s"].command)
+    assert remote[:-1] == shlex.split(f"ssh -q {proxy} -t pi@2.2.2.2")
+    assert "dev='/dev/serial/by-id/usb with space';" in remote[-1]
+    assert 'picocom -b 115200 --quiet "$dev"' in remote[-1]
     assert p["rpi serial via x13s"].tags == ("serial",)
     assert p["rpi"].command == f"ssh -q {proxy} root@3.3.3.3"
 
 
 def test_serial_user_override_and_name() -> None:
     p = _render('<host name="h" ip="1.1.1.1"><serial dev="/dev/ttyUSB1" baud="9600" user="me" name="board"/></host>')
-    assert p["board serial via h"].command == "ssh -q -t me@1.1.1.1 picocom -b 9600 /dev/ttyUSB1"
+    assert p["board serial via h"].command.startswith("ssh -q -t me@1.1.1.1 'dev=/dev/ttyUSB1; ")
 
 
 def test_oci_without_auth_sock_is_plain_ssh() -> None:
@@ -132,7 +133,7 @@ def test_names_do_not_depend_on_location() -> None:
 def test_at_home_lan_uses_lan_addresses() -> None:
     p = _render_at("beach")
     assert p["router"].command == "ssh -q -o ProxyCommand='ssh -q -W %h:%p root@10.9.0.1' root@10.9.0.2"
-    assert p["board serial via gw"].command == "ssh -q -t root@10.9.0.1 picocom -b 115200 /dev/ttyUSB0"
+    assert p["board serial via gw"].command.startswith("ssh -q -t root@10.9.0.1 'dev=/dev/ttyUSB0; ")
     assert [n for n, x in p.items() if x.away] == ["h"]  # only the other lan's host
 
 
@@ -142,7 +143,7 @@ def test_away_bastion_goes_through_tailnet() -> None:
     assert not p["router"].away
     # deeper hop still chains through the tailnet-reached gateway
     assert "root@100.64.0.1" in p["nas"].command
-    assert p["board serial via gw"].command == "ssh -q -t root@100.64.0.1 picocom -b 115200 /dev/ttyUSB0"
+    assert p["board serial via gw"].command.startswith("ssh -q -t root@100.64.0.1 'dev=/dev/ttyUSB0; ")
     assert not p["board serial via gw"].away
     # direct LAN-ip profiles are kept, but flagged
     assert p["gw"].command == "ssh -q root@10.9.0.1"
@@ -174,3 +175,11 @@ def test_serial_profiles_close_on_end() -> None:
     by_name = {p["Name"]: p for p in json.loads(to_json(profiles))["Profiles"]}
     assert by_name["b serial via h"]["Close Sessions On End"] == 1
     assert "Close Sessions On End" not in by_name["h"]
+
+
+def test_picocom_script_refuses_busy_port_and_pauses_on_failure() -> None:
+    script = picocom_script(Serial(dev="/dev/ttyUSB0", baud=1500000, args="--quiet"))
+    assert 'pids=$(fuser "$dev" 2>/dev/null)' in script
+    assert 'picocom -b 1500000 --quiet "$dev" && exit' in script
+    assert script.endswith("read -r _")
+    assert "'" not in script  # stays a single, readable level of quoting in the iTerm2 command

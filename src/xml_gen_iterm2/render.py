@@ -112,15 +112,27 @@ def _oci_command(console: OciConsole, d: Defaults) -> str:
     return bash_c(f"export SSH_AUTH_SOCK={Path(d.ssh_auth_sock).expanduser()}; {ssh}")
 
 
+def picocom_script(serial: Serial) -> str:
+    """POSIX sh run on the adapter host. picocom locks the port, so a second session would die instantly (and the tab
+    closes on end): refuse up front if the device is held, showing by whom, and pause on any picocom failure."""
+    picocom = _join(["picocom", "-b", str(serial.baud), serial.args or "", '"$dev"'])
+    return (
+        f"dev={shlex.quote(serial.dev)}; "
+        'pids=$(fuser "$dev" 2>/dev/null); '
+        'if [ -n "$pids" ]; then echo "$dev is in use by:"; ps -fp $pids 2>/dev/null || echo "PIDs:$pids"; '
+        f"else {picocom} && exit; fi; "
+        'printf "\\nPress Enter to close... "; read -r _'
+    )
+
+
 def _serial_profile(adapter: Host, serial: Serial, chain: Chain, d: Defaults, *, away: bool) -> Profile:
     address, via_tailnet = resolve(adapter, away=away)
     if via_tailnet:
         chain = ()
-    picocom = _join(["picocom", "-b", str(serial.baud), serial.args or "", shlex.quote(serial.dev)])
     ssh = ssh_command(serial.user or adapter.user, address, adapter.port, chain, d, tty=True)
     return Profile(
         f"{serial.target_name} serial via {adapter.name}",
-        f"{ssh} {picocom}",
+        f"{ssh} {shlex.quote(picocom_script(serial))}",
         _tags(adapter, "serial"),
         Kind.SERIAL,
         away=not via_tailnet and not reachable(chain, away=away),

@@ -45,7 +45,7 @@ See [`examples/example.xml`](examples/example.xml) for a working example of ever
 | `<group>`       | `name`, `user`/`users`, `port`, `tags`                                              | nested names are joined with `/` into the first tag; the other attributes are inherited |
 | `<host>`        | `name`, `ip` and/or `tailnet`, `user`/`users`, `port`, `tags`, `mac`, `ipv6`, `note` | one ssh profile per user × address                           |
 | `<ssh>`         | `name`, `user`, `port`                                                              | one extra ssh profile per address                            |
-| `<serial>`      | `dev`, `baud`, `user`, `args`, `name`                                               | `<target> serial via <host>`: `ssh -t host picocom …`        |
+| `<serial>`      | `dev`, `baud`, `user`, `args`, `name`                                               | `<target> serial via <host>`: `ssh -t host` + picocom wrapper |
 | `<oci-console>` | `connection` + `instance`, or `paste` (the raw string from OCI's web console)       | `<host> CONSOLE` (tag `ociConsole`)                          |
 
 Rules:
@@ -55,6 +55,9 @@ Rules:
   only happens for hosts that have a LAN `ip` and aren't behind a bastion.
 - **`<host>` inside `<host>`**: the parent is used as a bastion via `ProxyCommand`, and deeper nesting chains the
   bastions. A nested host inherits its enclosing *group's* users, port and tags, not the parent host's.
+- **Serial sessions** close when picocom quits normally, rather than restarting. picocom locks the port, so the
+  wrapper checks for a busy device first (`fuser`), shows who holds it, and waits for Enter. It also waits for Enter
+  if picocom fails, so the error stays visible.
 - **`<serial>`**: this is the console of *another* board, cabled to this host's USB-serial adapter. picocom runs on this
   host. The serial node wraps the target board's `<host>`, which gets its own ssh profiles and can't nest further. A
   board without network uses `name=` instead.
