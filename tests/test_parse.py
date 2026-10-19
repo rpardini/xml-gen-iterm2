@@ -74,6 +74,15 @@ def test_oci_paste_extracts_ocids() -> None:
         ('<host name="h" ip="1" port="99999"/>', "out of range"),
         ('<host name="h" ip="1" mac="nope"/>', "bad mac"),
         ('<host name="h" ip="1" wol="yes"/>', "must be 'true' or 'false'"),
+        ('<host name="h" ip="1" hotkey="F21"/>', "key must be F1..F20"),
+        ('<host name="h" ip="1" hotkey="x"/>', "key must be F1..F20"),
+        ('<host name="h" ip="1" hotkey="hyper+F1"/>', "unknown modifier"),
+        ('<host name="h" ip="1" style="quake"/>', "'style' without 'hotkey'"),
+        ('<host name="h" ip="1" hotkey="F1" style="huge"/>', "must be 'quake' or 'window'"),
+        ('<host name="h" ip="1" hotkey-user="root"/>', "'hotkey-user' without 'hotkey'"),
+        ('<host name="h" ip="1" hotkey="F1" hotkey-user="bob"/>', "not one of this host's users"),
+        ('<lan id="a"><local name="x"/></lan>', "not allowed inside <lan>"),
+        ('<local bogus="1"/>', "unknown attribute"),
         ('<host id="a" name="h" ip="1"/><host id="a" name="i" ip="2"/>', "duplicate host id 'a'"),
         ('<host name="h" ip="1" hypervisor="nope" virsh-domain="d"/>', "no host with that id"),
         ('<host id="a" name="h" ip="1" hypervisor="a" virsh-domain="d"/>', "its own hypervisor"),
@@ -122,3 +131,30 @@ def test_bad_root_and_syntax() -> None:
 def test_lan_subnets() -> None:
     cfg = parse_bytes(_xml('<lan id="a" subnets="10.0.0.7/24 fd00::/64 10.0.0.0/24"/>'))
     assert [str(n) for n in cfg.lans[0].subnets] == ["10.0.0.0/24", "fd00::/64"]
+
+
+@pytest.mark.parametrize(
+    ("raw", "code", "char", "mods"),
+    [
+        ("F1", 122, 0xF704, 0),
+        ("F12", 111, 0xF70F, 0),
+        ("F13", 105, 0xF710, 0),
+        ("F20", 90, 0xF717, 0),
+        ("cmd+opt+F5", 96, 0xF708, (1 << 20) | (1 << 19)),
+        ("Shift+Ctrl+f2", 120, 0xF705, (1 << 17) | (1 << 18)),
+    ],
+)
+def test_hotkey_encoding(raw: str, code: int, char: int, mods: int) -> None:
+    cfg = parse_bytes(_xml(f'<host name="h" ip="1" hotkey="{raw}"/>'))
+    host = cfg.lans[0].children[0]
+    assert isinstance(host, Host)
+    assert host.hotkey is not None
+    assert (host.hotkey.key_code, ord(host.hotkey.char), host.hotkey.modifiers) == (code, char, mods)
+    assert host.hotkey.style == "quake"
+
+
+def test_locals() -> None:
+    cfg = parse_bytes(_xml('<local/><local name="Work" hotkey="F14" style="window" tags="w"/>'))
+    assert [(loc.name, loc.tags) for loc in cfg.locals] == [("Local", ("local",)), ("Work", ("local", "w"))]
+    assert cfg.locals[1].hotkey is not None
+    assert cfg.locals[1].hotkey.style == "window"

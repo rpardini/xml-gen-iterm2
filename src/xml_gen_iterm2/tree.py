@@ -16,6 +16,7 @@ _KIND_STYLE: dict[Kind, tuple[str, str]] = {
     Kind.SERIAL: ("🔌", "yellow"),
     Kind.WOL: ("⏰", "cyan"),
     Kind.VIRSH: ("📺", "bright_magenta"),
+    Kind.LOCAL: ("💻", "bright_white"),
 }
 
 
@@ -42,6 +43,8 @@ def _profile_label(p: Profile) -> Text:
     icon, style = _KIND_STYLE[p.kind]
     text = Text.assemble(f"{icon} ", (p.name, f"{style} dim" if p.away else style))
     text.append(f"  [{', '.join(p.tags)}]", style="dim")
+    if p.hotkey is not None:
+        text.append(f"  ⌨ {p.hotkey.label} ({p.hotkey.style})", style="bold cyan")
     if p.away:
         text.append("  (away)", style="dim italic")
     return text
@@ -90,6 +93,11 @@ def build_tree(config: Config, source: str, where: Detection) -> tuple[Tree, int
     root = Tree(f"[bold]{escape(source)}[/]  {here}")
     hyps = index_hosts(config, where.lan_id)
     count = 0
+    if config.locals:
+        branch = root.add("[bold]💻 local[/]")
+        for loc in config.locals:
+            branch.add(_profile_label(Profile(loc.name, "", loc.tags, Kind.LOCAL, hotkey=loc.hotkey)))
+            count += 1
     for lan in config.lans:
         away = is_away(lan, where.lan_id)
         branch = root

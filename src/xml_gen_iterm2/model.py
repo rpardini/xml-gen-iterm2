@@ -7,6 +7,7 @@ import uuid
 from dataclasses import dataclass
 from enum import StrEnum
 from ipaddress import IPv4Network, IPv6Network
+from typing import Literal
 
 DEFAULT_SSH_OPTS = (
     "-o GlobalKnownHostsFile=/dev/null -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no -A -X -Y"
@@ -16,6 +17,20 @@ GUID_NAMESPACE = uuid.uuid5(uuid.NAMESPACE_URL, "https://github.com/rpardini/xml
 
 _OCI_CONNECTION_RE = re.compile(r"ocid1\.instanceconsoleconnection\.oc1\.([a-z0-9-]+)\.[a-z0-9]+")
 _OCI_INSTANCE_RE = re.compile(r"ocid1\.instance\.oc1\.[a-z0-9-]+\.[a-z0-9]+")
+
+
+HotkeyStyle = Literal["quake", "window"]
+
+
+@dataclass(frozen=True)
+class Hotkey:
+    """A global iTerm2 hotkey, encoded the way iTerm2 stores it (see iTermShortcut.m)."""
+
+    label: str  # as written, e.g. "cmd+F12"
+    key_code: int  # macOS virtual key code
+    char: str  # NSFunctionKey character, e.g. U+F70F for F12
+    modifiers: int  # NSEvent modifier flags (cmd/opt/ctrl/shift only)
+    style: HotkeyStyle = "quake"
 
 
 @dataclass(frozen=True)
@@ -82,6 +97,8 @@ class Host:
     id: str | None = None  # for references from other hosts (e.g. hypervisor=)
     hypervisor: str | None = None  # id of the host running this VM under libvirt
     virsh_domain: str | None = None
+    hotkey: Hotkey | None = None
+    hotkey_user: str | None = None  # which user's profile gets the hotkey (default: first user)
     ipv6: str | None = None
     note: str | None = None
     ssh: tuple[SshEntry, ...] = ()
@@ -122,6 +139,16 @@ class Lan:
 class Config:
     defaults: Defaults
     lans: tuple[Lan, ...]
+    locals: tuple[Local, ...] = ()
+
+
+@dataclass(frozen=True)
+class Local:
+    """A plain local shell profile (no custom command)."""
+
+    name: str
+    tags: tuple[str, ...]
+    hotkey: Hotkey | None = None
 
 
 class Kind(StrEnum):
@@ -130,6 +157,7 @@ class Kind(StrEnum):
     SERIAL = "serial"
     WOL = "wol"
     VIRSH = "virsh"
+    LOCAL = "local"
 
 
 @dataclass(frozen=True)
@@ -139,6 +167,7 @@ class Profile:
     tags: tuple[str, ...]
     kind: Kind
     away: bool = False  # likely unreachable from the current LAN; only affects the tree, not the JSON
+    hotkey: Hotkey | None = None
 
     @property
     def guid(self) -> str:

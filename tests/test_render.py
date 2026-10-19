@@ -230,3 +230,41 @@ def test_virsh_script() -> None:
         virsh_script("a b")
         == "dom='a b'; virsh console \"$dom\" && exit; " + 'printf "\\nPress Enter to close... "; read -r _'
     )
+
+
+def test_hotkey_on_first_user_lan_profile() -> None:
+    p = _render(
+        '<host name="h" ip="10.0.0.1" tailnet="100.64.0.1" users="root human" mac="00:11:22:33:44:55" wol="true"'
+        ' hotkey="F12"/>'
+    )
+    assert [n for n, x in p.items() if x.hotkey] == ["h root"]
+
+
+def test_hotkey_user_picks_profile() -> None:
+    p = _render('<host name="h" tailnet="100.64.0.1" users="root human" hotkey="F12" hotkey-user="human"/>')
+    assert [n for n, x in p.items() if x.hotkey] == ["h human tailnet"]
+
+
+def test_duplicate_hotkey_is_an_error() -> None:
+    with pytest.raises(ConfigError, match="used by both 'h' and 'Local'"):
+        _render('<local hotkey="F12"/><host name="h" ip="1.1.1.1" hotkey="F12"/>')
+    _render('<local hotkey="cmd+F12"/><host name="h" ip="1.1.1.1" hotkey="F12"/>')  # different modifiers: fine
+
+
+def test_hotkey_and_local_json() -> None:
+    profiles = list(_render('<local hotkey="F13"/><host name="h" ip="1.1.1.1" hotkey="F12" style="window"/>').values())
+    doc = {x["Name"]: x for x in json.loads(to_json(profiles))["Profiles"]}
+    local = doc["Local"]
+    assert local["Custom Command"] == "No"
+    assert "Command" not in local
+    assert "Badge Text" not in local
+    assert local["Tags"] == ["local"]
+    assert local["Has Hotkey"] is True
+    assert (local["HotKey Key Code"], local["HotKey Characters"], local["HotKey Modifier Flags"]) == (105, "\uf710", 0)
+    assert (local["Window Type"], local["Width Percentage"], local["Height Percentage"]) == (2, 100, 40)
+    assert local["HotKey Window AutoHides"] is True
+    assert local["HotKey Window Animates"] is True
+    assert local["HotKey Window Floats"] is False
+    host = doc["h"]
+    assert host["HotKey Key Code"] == 111
+    assert "Window Type" not in host  # style="window": keep the default window

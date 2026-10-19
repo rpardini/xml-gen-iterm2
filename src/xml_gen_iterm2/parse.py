@@ -14,7 +14,9 @@ from xml_gen_iterm2.model import (
     Defaults,
     Group,
     Host,
+    Hotkey,
     Lan,
+    Local,
     OciConsole,
     Serial,
     SshEntry,
@@ -27,10 +29,17 @@ _MAC_RE = re.compile(r"[0-9A-Fa-f]{2}(:[0-9A-Fa-f]{2}){5}")
 
 _HOST_ATTRS = frozenset(
     {"name", "ip", "tailnet", "user", "users", "port", "tags", "mac", "wol", "ipv6", "note"}
-    | {"id", "hypervisor", "virsh-domain"}
+    | {"id", "hypervisor", "virsh-domain", "hotkey", "hotkey-user", "style"}
 )
+
+# macOS virtual key codes (Carbon kVK_F1..kVK_F20)
+_FKEY_CODES = (122, 120, 99, 118, 96, 97, 98, 100, 101, 109, 103, 111, 105, 107, 113, 106, 64, 79, 80, 90)
+_NS_F1_FUNCTION_KEY = 0xF704  # NSF1FunctionKey; F(n) = this + n - 1
+# NSEventModifierFlag* values
+_MODIFIERS = {"shift": 1 << 17, "ctrl": 1 << 18, "opt": 1 << 19, "cmd": 1 << 20}
 _ATTRS: dict[str, frozenset[str]] = {
     "profiles": frozenset(),
+    "local": frozenset({"name", "hotkey", "style", "tags"}),
     "defaults": frozenset({"user", "ssh-opts", "ssh-auth-sock", "wol-cmd"}),
     "lan": frozenset({"id", "subnets"}),
     "group": frozenset({"name", "user", "users", "port", "tags"}),
@@ -125,6 +134,41 @@ def _int(node: _Node, attr: str, lo: int, hi: int) -> int | None:
     if not lo <= value <= hi:
         raise node.fail(f"{attr}={value} out of range {lo}..{hi}")
     return value
+
+
+def _parse_hotkey(node: _Node) -> Hotkey | None:
+    """`hotkey="[mod+...]F<n>"` (+ optional `style="quake|window"`) -> Hotkey."""
+    raw = node.attrs.get("hotkey", "").strip()
+    style = node.attrs.get("style", "").strip()
+    if not raw:
+        if style:
+            raise node.fail("'style' without 'hotkey'")
+        return None
+    if style not in {"", "quake", "window"}:
+        raise node.fail(f"style={style!r} must be 'quake' or 'window'")
+    *mods, key = [part.strip().lower() for part in raw.split("+")]
+    match = re.fullmatch(r"f(\d{1,2})", key)
+    if match is None or not 1 <= int(match.group(1)) <= len(_FKEY_CODES):
+        raise node.fail(f"hotkey={raw!r}: key must be F1..F{len(_FKEY_CODES)}")
+    if unknown := [m for m in mods if m not in _MODIFIERS]:
+        raise node.fail(f"hotkey={raw!r}: unknown modifier(s) {', '.join(unknown)}; use {', '.join(_MODIFIERS)}")
+    n = int(match.group(1))
+    return Hotkey(
+        label=raw,
+        key_code=_FKEY_CODES[n - 1],
+        char=chr(_NS_F1_FUNCTION_KEY + n - 1),
+        modifiers=sum({_MODIFIERS[m] for m in mods}),
+        style="window" if style == "window" else "quake",
+    )
+
+
+def _parse_local(node: _Node) -> Local:
+    _check(node)
+    return Local(
+        name=node.attrs.get("name", "").strip() or "Local",
+        tags=_dedupe(("local", *node.attrs.get("tags", "").split())),
+        hotkey=_parse_hotkey(node),
+    )
 
 
 def _bool(node: _Node, attr: str) -> bool:
@@ -230,6 +274,13 @@ def _parse_host(node: _Node, ctx: _Ctx, *, leaf: bool = False) -> Host:
     virsh_domain = node.attrs.get("virsh-domain", "").strip() or None
     if (hypervisor is None) != (virsh_domain is None):
         raise node.fail("'hypervisor' and 'virsh-domain' go together")
+    hotkey = _parse_hotkey(node)
+    hotkey_user = node.attrs.get("hotkey-user", "").strip() or None
+    if hotkey_user is not None:
+        if hotkey is None:
+            raise node.fail("'hotkey-user' without 'hotkey'")
+        if hotkey_user not in own.users:
+            raise node.fail(f"hotkey-user={hotkey_user!r} is not one of this host's users ({', '.join(own.users)})")
 
     tags = _dedupe(("/".join(own.path),) if own.path else ()) + _dedupe(own.tags)
     by_tag: dict[str, list[_Node]] = {}
@@ -248,6 +299,8 @@ def _parse_host(node: _Node, ctx: _Ctx, *, leaf: bool = False) -> Host:
         id=node.attrs.get("id", "").strip() or None,
         hypervisor=hypervisor,
         virsh_domain=virsh_domain,
+        hotkey=hotkey,
+        hotkey_user=hotkey_user,
         ipv6=node.attrs.get("ipv6", "").strip() or None,
         note=node.attrs.get("note", "").strip() or None,
         ssh=tuple(_parse_ssh(c, name, own) for c in by_tag.get("ssh", [])),
@@ -312,7 +365,7 @@ def parse_bytes(data: bytes) -> Config:
     if root.tag != "profiles":
         raise root.fail("root element must be <profiles>")
     _check_refs(root)
-    _check(root, frozenset({"defaults", "lan", "group", "host"}))
+    _check(root, frozenset({"defaults", "local", "lan", "group", "host"}))
 
     defaults_nodes = [c for c in root.children if c.tag == "defaults"]
     if len(defaults_nodes) > 1:
@@ -353,10 +406,11 @@ def parse_bytes(data: bytes) -> Config:
                     raise child.fail(f"subnet {net} already belongs to lan {seen_nets[net]!r}")
                 seen_nets[net] = lan_id
             lans.append(Lan(id=lan_id, children=_parse_children(child, base), subnets=subnets))
-        elif child.tag != "defaults":
+        elif child.tag not in {"defaults", "local"}:
             loose.append(child)
     flush_loose()
-    return Config(defaults=defaults, lans=tuple(lans))
+    locals_ = tuple(_parse_local(c) for c in root.children if c.tag == "local")
+    return Config(defaults=defaults, lans=tuple(lans), locals=locals_)
 
 
 def parse_file(path: Path) -> Config:

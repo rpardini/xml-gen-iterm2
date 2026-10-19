@@ -10,7 +10,19 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from xml_gen_iterm2.model import DEFAULT_PORT, Config, Defaults, Group, Host, Kind, Lan, OciConsole, Profile, Serial
+from xml_gen_iterm2.model import (
+    DEFAULT_PORT,
+    Config,
+    Defaults,
+    Group,
+    Host,
+    Hotkey,
+    Kind,
+    Lan,
+    OciConsole,
+    Profile,
+    Serial,
+)
 from xml_gen_iterm2.parse import ConfigError
 
 _OCI_RSA = "-oHostKeyAlgorithms=+ssh-rsa -oPubkeyAcceptedAlgorithms=+ssh-rsa"
@@ -172,13 +184,18 @@ def host_profiles(
 ) -> list[Profile]:
     """Profiles belonging to `host` itself (not to hosts nested in it). `away`: its LAN isn't the current one."""
     profiles: list[Profile] = []
+    hotkey_user = host.hotkey_user or host.user
+    hotkey = host.hotkey  # goes on the first ssh profile of hotkey_user (first address), then is used up
     for base, user, port in _ssh_targets(host):
         for address, suffix, extra in _addresses(host):
             if suffix:  # tailnet: reachable from anywhere, no bastions needed
                 cmd, dim = ssh_command(user, address, port, (), d), False
             else:
                 cmd, dim = ssh_command(user, address, port, chain, d), not reachable(chain, away=away)
-            profiles.append(Profile(base + suffix, cmd, _tags(host, *extra), Kind.SSH, away=dim))
+            hk = hotkey if user == hotkey_user else None
+            if hk is not None:
+                hotkey = None
+            profiles.append(Profile(base + suffix, cmd, _tags(host, *extra), Kind.SSH, away=dim, hotkey=hk))
 
     if host.wol and chain:
         raise ConfigError(f'host {host.name!r}: wol="true" on a host behind a bastion; magic packets can\'t get there')
@@ -235,8 +252,17 @@ def render(config: Config, current: str | None = None) -> list[Profile]:
         for host, chain, away in walk_hosts(config, current)
         for p in host_profiles(host, chain, d, away=away, hypervisors=hyps)
     ]
+    profiles += [Profile(loc.name, "", loc.tags, Kind.LOCAL, hotkey=loc.hotkey) for loc in config.locals]
     if dupes := sorted(name for name, n in Counter(p.name for p in profiles).items() if n > 1):
         raise ConfigError(f"duplicate profile name(s): {', '.join(map(repr, dupes))}")
+    by_key: dict[tuple[int, int], Profile] = {}
+    for p in profiles:
+        if p.hotkey is None:
+            continue
+        key = (p.hotkey.key_code, p.hotkey.modifiers)
+        if key in by_key:
+            raise ConfigError(f"hotkey {p.hotkey.label!r} used by both {by_key[key].name!r} and {p.name!r}")
+        by_key[key] = p
     return profiles
 
 
@@ -244,17 +270,42 @@ def render(config: Config, current: str | None = None) -> list[Profile]:
 _SESSION_END_CLOSE = 1
 
 
-def _profile_json(p: Profile) -> dict[str, Any]:
+# iTerm2's iTermWindowType (ITAddressBookMgr.h): full-width window attached to the top edge, sized in percent
+_WINDOW_TYPE_TOP_PERCENTAGE = 2
+_QUAKE_HEIGHT_PERCENT = 40
+
+
+def _hotkey_json(hk: Hotkey) -> dict[str, Any]:
     out: dict[str, Any] = {
-        "Name": p.name,
-        "Guid": p.guid,
-        "Custom Command": "Yes",
-        "Badge Text": p.name,
-        "Tags": list(p.tags),
-        "Command": p.command,
+        "Has Hotkey": True,
+        "HotKey Activated By Modifier": False,
+        "HotKey Key Code": hk.key_code,
+        "HotKey Characters": hk.char,
+        "HotKey Characters Ignoring Modifiers": hk.char,
+        "HotKey Modifier Flags": hk.modifiers,
+        "HotKey Window AutoHides": True,
+        "HotKey Window Animates": True,
+        "HotKey Window Floats": False,
     }
+    if hk.style == "quake":
+        out |= {
+            "Window Type": _WINDOW_TYPE_TOP_PERCENTAGE,
+            "Width Percentage": 100,
+            "Height Percentage": _QUAKE_HEIGHT_PERCENT,
+        }
+    return out
+
+
+def _profile_json(p: Profile) -> dict[str, Any]:
+    out: dict[str, Any] = {"Name": p.name, "Guid": p.guid}
+    if p.kind is Kind.LOCAL:  # plain login shell
+        out |= {"Custom Command": "No", "Tags": list(p.tags)}
+    else:
+        out |= {"Custom Command": "Yes", "Badge Text": p.name, "Tags": list(p.tags), "Command": p.command}
     if p.kind in {Kind.SERIAL, Kind.VIRSH}:  # quitting the console means "done"; don't restart like the parent
         out["Close Sessions On End"] = _SESSION_END_CLOSE
+    if p.hotkey is not None:
+        out |= _hotkey_json(p.hotkey)
     return out
 
 

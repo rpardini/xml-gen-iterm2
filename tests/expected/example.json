@@ -28,7 +28,16 @@
             "Tags": [
                 "Home/bench"
             ],
-            "Command": "ssh -o GlobalKnownHostsFile=/dev/null -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no -A -X -Y alice@192.0.2.19"
+            "Command": "ssh -o GlobalKnownHostsFile=/dev/null -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no -A -X -Y alice@192.0.2.19",
+            "Has Hotkey": true,
+            "HotKey Activated By Modifier": false,
+            "HotKey Key Code": 111,
+            "HotKey Characters": "",
+            "HotKey Characters Ignoring Modifiers": "",
+            "HotKey Modifier Flags": 1048576,
+            "HotKey Window AutoHides": true,
+            "HotKey Window Animates": true,
+            "HotKey Window Floats": false
         },
         {
             "Name": "Laptop runner",
@@ -298,6 +307,26 @@
             "Badge Text": "Loose VPS",
             "Tags": [],
             "Command": "ssh -o GlobalKnownHostsFile=/dev/null -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no -A -X -Y -p 2200 root@203.0.113.5"
+        },
+        {
+            "Name": "Local",
+            "Guid": "50ab568d-8c1b-533f-95cd-0ab86914a344",
+            "Custom Command": "No",
+            "Tags": [
+                "local"
+            ],
+            "Has Hotkey": true,
+            "HotKey Activated By Modifier": false,
+            "HotKey Key Code": 105,
+            "HotKey Characters": "",
+            "HotKey Characters Ignoring Modifiers": "",
+            "HotKey Modifier Flags": 0,
+            "HotKey Window AutoHides": true,
+            "HotKey Window Animates": true,
+            "HotKey Window Floats": false,
+            "Window Type": 2,
+            "Width Percentage": 100,
+            "Height Percentage": 40
         }
     ]
 }

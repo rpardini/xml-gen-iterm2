@@ -3,6 +3,9 @@
 <profiles>
     <defaults user="root" ssh-auth-sock="~/.gnupg/S.gpg-agent.ssh"/>
 
+    <!-- plain local shell; F13 drops it down Quake-style (style defaults to quake) -->
+    <local name="Local" hotkey="F13"/>
+
     <!-- subnets: the generator detects which lan you're in from your own addresses (override: the lan CLI option) -->
     <lan id="home" subnets="192.0.2.0/24 2001:db8:1::/64">
         <group name="Home">
@@ -11,7 +14,8 @@
                 <host name="Board A" ip="192.0.2.10" mac="00:11:22:33:44:aa"/>  <!-- mac alone: metadata only -->
 
                 <!-- several users: one profile per user, user appended to the name; wol="true" (+ mac) adds WOL profiles -->
-                <host id="laptop" name="Laptop" ip="192.0.2.19" mac="00:11:22:33:44:55" wol="true" users="root alice">
+                <host id="laptop" name="Laptop" ip="192.0.2.19" mac="00:11:22:33:44:55" wol="true" users="root alice"
+                      hotkey="cmd+F12" hotkey-user="alice" style="window">
                     <!-- extra explicit ssh profile -->
                     <ssh name="Laptop runner" user="runner" port="2222"/>
 

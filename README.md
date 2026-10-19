@@ -43,9 +43,10 @@ See [`examples/example.xml`](examples/example.xml) for a working example of ever
 | `<defaults>`    | `user` (root), `ssh-opts`, `ssh-auth-sock` (used by OCI consoles), `wol-cmd`        | nothing                                                      |
 | `<lan>`         | `id`, `subnets` (space-separated CIDRs)                                             | nothing itself; drives location-aware routing (below)        |
 | `<group>`       | `name`, `user`/`users`, `port`, `tags`                                              | nested names are joined with `/` into the first tag; the other attributes are inherited |
-| `<host>`        | `name`, `ip` and/or `tailnet`, `user`/`users`, `port`, `tags`, `mac`, `wol`, `id`, `hypervisor` + `virsh-domain`, `ipv6`, `note` | one ssh profile per user × address                           |
+| `<host>`        | `name`, `ip` and/or `tailnet`, `user`/`users`, `port`, `tags`, `mac`, `wol`, `id`, `hypervisor` + `virsh-domain`, `hotkey`, `hotkey-user`, `style`, `ipv6`, `note` | one ssh profile per user × address                           |
 | `<ssh>`         | `name`, `user`, `port`                                                              | one extra ssh profile per address                            |
 | `<serial>`      | `dev`, `baud`, `user`, `args`, `name`                                               | `<target> serial via <host>`: `ssh -t host` + picocom wrapper |
+| `<local>`       | `name` (Local), `hotkey`, `style`, `tags`; only directly under `<profiles>`        | a plain local login-shell profile (tag `local`)              |
 | `<oci-console>` | `connection` + `instance`, or `paste` (the raw string from OCI's web console)       | `<host> CONSOLE` (tag `ociConsole`)                          |
 
 Rules:
@@ -61,6 +62,12 @@ Rules:
   VM's host. This adds `<vm> console via <hypervisor>`, which runs `virsh console` over `ssh -t` as the hypervisor's
   first user, reaching it through its own bastions or tailnet (tag `virsh`). The VM's own ssh profiles stay direct.
   Ids are unique across the file.
+- **Hotkeys**: `hotkey="F12"` (`F1`–`F20`, optionally `cmd+`/`opt+`/`ctrl+`/`shift+`) turns a profile into an iTerm2
+  hotkey window. On a `<host>` it goes on the main profile: the first user on the first address. `hotkey-user` picks
+  another user. `style="quake"` (the default) drops a full-width window from the top at 40% height; `style="window"`
+  uses your normal window. Hotkey windows auto-hide when they lose focus, and animate. Using the same hotkey twice is
+  an error. On Mac laptop and Magic keyboards, F-keys are media keys unless "Use F1, F2, etc. keys as standard
+  function keys" is on, and F13 and above only exist on extended keyboards.
 - **Serial sessions** close when picocom quits normally, rather than restarting. picocom locks the port, so the
   wrapper checks for a busy device first (`fuser`), shows who holds it, and waits for Enter. It also waits for Enter
   if picocom fails, so the error stays visible. virsh consoles behave the same way: they close on Ctrl+], and wait
