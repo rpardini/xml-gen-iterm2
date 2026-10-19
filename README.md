@@ -9,9 +9,10 @@ uv run xml-gen-iterm2                       # reads ./iterm2-profiles.xml, write
 uv run xml-gen-iterm2 my.xml -o out.json    # explicit paths
 uv run xml-gen-iterm2 --check               # diff against the existing output, exit 1 if it'd change
 uv run xml-gen-iterm2 --stdout --no-tree    # JSON to stdout
+uv run xml-gen-iterm2 --lan maresias        # pretend to be somewhere else (or --lan none)
 ```
 
-Every run prints a tree of what was parsed and which profiles each host produces.
+Every run prints a tree of what was parsed, where you are, and which profiles each host produces.
 
 ## Format
 
@@ -40,7 +41,7 @@ See [`examples/example.xml`](examples/example.xml) for a working example of ever
 | Element         | Attributes                                                                          | Generates                                                    |
 |-----------------|-------------------------------------------------------------------------------------|--------------------------------------------------------------|
 | `<defaults>`    | `user` (root), `ssh-opts`, `ssh-auth-sock` (used by OCI consoles), `wol-cmd`        | nothing                                                      |
-| `<lan>`         | `id`                                                                                | nothing; grouping only (shown in the tree)                   |
+| `<lan>`         | `id`, `subnets` (space-separated CIDRs)                                             | nothing itself; drives location-aware routing (below)        |
 | `<group>`       | `name`, `user`/`users`, `port`, `tags`                                              | nested names are joined with `/` into the first tag; the other attributes are inherited |
 | `<host>`        | `name`, `ip` and/or `tailnet`, `user`/`users`, `port`, `tags`, `mac`, `ipv6`, `note` | one ssh profile per user × address                           |
 | `<ssh>`         | `name`, `user`, `port`                                                              | one extra ssh profile per address                            |
@@ -58,7 +59,21 @@ Rules:
   host. The serial node wraps the target board's `<host>`, which gets its own ssh profiles and can't nest further. A
   board without network uses `name=` instead.
 - **GUIDs**: a uuid5 of the profile name, so they stay stable when you reorder entries. Duplicate names are an error.
-- `ipv6` and `note` are metadata only. Unknown elements or attributes are errors, reported with line numbers.
+- `ipv6` and `note` are metadata only.
+
+### Location-aware routing
+
+The generator checks this machine's own addresses against each `<lan subnets="...">` to work out which LAN you're
+in. `--lan ID|none` overrides that. For hosts in a LAN that has subnets but isn't the current one ("away"):
+- **Bastion hops and serial adapters** use the host's `tailnet` address when it has one, so things nested behind a
+  tailnet-enabled box keep working from anywhere. A hop reached over the tailnet restarts the chain.
+- **Direct LAN-IP and WOL profiles** are still generated, but are dimmed and marked `(away)` in the tree. A bastion
+  hop with no tailnet route is flagged `⚠ unreachable from here?`.
+- **Profile names, and so GUIDs, never depend on location**; only commands do. Re-run after you move.
+
+A host's own `tailnet` profile always connects directly, even when nested. A LAN without `subnets` (for example
+cloud hosts on public IPs) is never away. Common subnets like `192.168.0.0/24` can wrongly match in hotels or
+cafés; use `--lan none` there. Unknown elements or attributes are errors, reported with line numbers.
 
 ## Development
 

@@ -88,6 +88,8 @@ def test_oci_paste_extracts_ocids() -> None:
         ),
         ('<host name="h" ip="1"><oci-console connection="x" instance="y"/></host>', "bad console connection"),
         ('<lan id="a"/><lan id="a"/>', "duplicate lan id"),
+        ('<lan id="a" subnets="10.0.0.0/33"/>', "bad subnet"),
+        ('<lan id="a" subnets="10.0.0.0/24"/><lan id="b" subnets="10.0.0.1/24"/>', "already belongs to lan 'a'"),
         ("<defaults/><defaults/>", "only one <defaults>"),
         ('<host name="h" ip="1">text</host>', "unexpected text"),
     ],
@@ -107,3 +109,8 @@ def test_bad_root_and_syntax() -> None:
         parse_bytes(b"<putty/>")
     with pytest.raises(ConfigError, match="XML syntax error"):
         parse_bytes(b"<profiles>")
+
+
+def test_lan_subnets() -> None:
+    cfg = parse_bytes(_xml('<lan id="a" subnets="10.0.0.7/24 fd00::/64 10.0.0.0/24"/>'))
+    assert [str(n) for n in cfg.lans[0].subnets] == ["10.0.0.0/24", "fd00::/64"]

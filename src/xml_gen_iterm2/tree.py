@@ -7,7 +7,8 @@ from rich.text import Text
 from rich.tree import Tree
 
 from xml_gen_iterm2.model import DEFAULT_PORT, Config, Group, Host, Kind, Profile
-from xml_gen_iterm2.render import Chain, host_profiles
+from xml_gen_iterm2.render import Chain, extend, host_profiles, is_away, reachable
+from xml_gen_iterm2.where import Detection
 
 _KIND_STYLE: dict[Kind, tuple[str, str]] = {
     Kind.SSH: ("🔑", "green"),
@@ -17,13 +18,16 @@ _KIND_STYLE: dict[Kind, tuple[str, str]] = {
 }
 
 
-def _host_label(host: Host, chain: Chain, *, serial_target: bool = False) -> str:
+def _host_label(host: Host, chain: Chain, *, away: bool, serial_target: bool = False) -> str:
     users = ",".join(host.users)
     port = f":{host.port}" if host.port != DEFAULT_PORT else ""
     addrs = " ".join(a for a in (host.ip, host.tailnet and f"[dim](tailnet {host.tailnet})[/dim]") if a)
     label = f"[bold blue]{escape(host.name)}[/] {escape(users)}@{addrs}{port}"
     if chain:
-        label += f" [dim]via {' → '.join(escape(b.name) for b in chain)}[/dim]"
+        hops = " → ".join(f"{escape(h.host.name)}{' (tailnet)' if h.via_tailnet else ''}" for h in chain)
+        label += f" [dim]via {hops}[/dim]"
+        if not reachable(chain, away=away):
+            label += " [bold yellow]⚠ unreachable from here?[/]"
     if serial_target:
         label = f"[yellow]⇄[/] {label}"
     if host.note:
@@ -33,40 +37,57 @@ def _host_label(host: Host, chain: Chain, *, serial_target: bool = False) -> str
 
 def _profile_label(p: Profile) -> Text:
     icon, style = _KIND_STYLE[p.kind]
-    text = Text.assemble(f"{icon} ", (p.name, style))
+    text = Text.assemble(f"{icon} ", (p.name, f"{style} dim" if p.away else style))
     text.append(f"  [{', '.join(p.tags)}]", style="dim")
+    if p.away:
+        text.append("  (away)", style="dim italic")
     return text
 
 
-def _add_host(parent: Tree, host: Host, chain: Chain, config: Config, *, serial_target: bool = False) -> int:
-    node = parent.add(_host_label(host, chain, serial_target=serial_target))
-    profiles = host_profiles(host, chain, config.defaults)
+def _add_host(
+    parent: Tree, host: Host, chain: Chain, config: Config, *, away: bool, serial_target: bool = False
+) -> int:
+    node = parent.add(_host_label(host, chain, away=away, serial_target=serial_target))
+    profiles = host_profiles(host, chain, config.defaults, away=away)
     for p in profiles:
         node.add(_profile_label(p))
     count = len(profiles)
     for serial in host.serials:
         if serial.target is not None:
-            count += _add_host(node, serial.target, chain, config, serial_target=True)
+            count += _add_host(node, serial.target, chain, config, away=away, serial_target=True)
     for sub in host.hosts:
-        count += _add_host(node, sub, (*chain, host), config)
+        count += _add_host(node, sub, extend(chain, host, away=away), config, away=away)
     return count
 
 
-def _add_items(parent: Tree, items: tuple[Group | Host, ...], config: Config) -> int:
+def _add_items(parent: Tree, items: tuple[Group | Host, ...], config: Config, *, away: bool) -> int:
     count = 0
     for item in items:
         if isinstance(item, Group):
-            count += _add_items(parent.add(f"[bold]📁 {escape(item.name)}[/]"), item.children, config)
+            count += _add_items(parent.add(f"[bold]📁 {escape(item.name)}[/]"), item.children, config, away=away)
         else:
-            count += _add_host(parent, item, (), config)
+            count += _add_host(parent, item, (), config, away=away)
     return count
 
 
-def build_tree(config: Config, source: str) -> tuple[Tree, int]:
+def build_tree(config: Config, source: str, where: Detection) -> tuple[Tree, int]:
     """Returns the tree and the number of profiles it shows."""
-    root = Tree(f"[bold]{escape(source)}[/]")
+    if where.lan_id:
+        here = f"📍 you are in: [bold green]{escape(where.lan_id)}[/] [dim]({escape(where.reason)})[/dim]"
+    else:
+        here = f"📍 [bold yellow]away from all lans[/] [dim]({escape(where.reason)})[/dim]"
+    root = Tree(f"[bold]{escape(source)}[/]  {here}")
     count = 0
     for lan in config.lans:
-        branch = root.add(f"[bold red]🌐 lan {escape(lan.id)}[/]") if lan.id else root
-        count += _add_items(branch, lan.children, config)
+        away = is_away(lan, where.lan_id)
+        branch = root
+        if lan.id:
+            nets = " ".join(str(n) for n in lan.subnets)
+            label = f"[bold red]🌐 lan {escape(lan.id)}[/]" + (f" [dim]{nets}[/dim]" if nets else "")
+            if lan.id == where.lan_id:
+                label += " [bold green]← here[/]"
+            elif away:
+                label += " [dim italic](away)[/]"
+            branch = root.add(label)
+        count += _add_items(branch, lan.children, config, away=away)
     return root, count

@@ -6,6 +6,7 @@ import re
 import uuid
 from dataclasses import dataclass
 from enum import StrEnum
+from ipaddress import IPv4Network, IPv6Network
 
 DEFAULT_SSH_OPTS = (
     "-o GlobalKnownHostsFile=/dev/null -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no -A -X -Y"
@@ -110,6 +111,7 @@ class Lan:
 
     id: str | None
     children: tuple[Group | Host, ...]
+    subnets: tuple[IPv4Network | IPv6Network, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -131,6 +133,7 @@ class Profile:
     command: str
     tags: tuple[str, ...]
     kind: Kind
+    away: bool = False  # likely unreachable from the current LAN; only affects the tree, not the JSON
 
     @property
     def guid(self) -> str:

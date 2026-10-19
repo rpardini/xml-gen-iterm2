@@ -3,7 +3,8 @@
 <profiles>
     <defaults user="root" ssh-auth-sock="~/.gnupg/S.gpg-agent.ssh"/>
 
-    <lan id="home">
+    <!-- subnets: the generator detects which lan you're in from your own addresses (override: the lan CLI option) -->
+    <lan id="home" subnets="192.0.2.0/24 2001:db8:1::/64">
         <group name="Home">
             <group name="bench">
                 <!-- simplest case: one profile, ssh root@ip -->
@@ -34,6 +35,18 @@
                 <!-- tailnet only, non-default port -->
                 <host name="Desktop runner" tailnet="100.64.0.30" user="root" port="22222"/>
             </group>
+        </group>
+    </lan>
+
+    <lan id="beach" subnets="198.18.0.0/24">
+        <group name="Beach">
+            <!-- when not at the beach, things behind this box are reached through its tailnet address -->
+            <host name="Beach gateway" ip="198.18.0.10" tailnet="100.64.0.50">
+                <host name="Beach OpenWRT" ip="198.18.0.1">
+                    <host name="Beach NAS" ip="198.18.0.20" tailnet="100.64.0.51"/>  <!-- own tailnet: direct -->
+                </host>
+            </host>
+            <host name="Beach TV box" ip="198.18.0.30"/>  <!-- LAN-only: dimmed when away -->
         </group>
     </lan>
 

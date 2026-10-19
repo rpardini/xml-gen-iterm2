@@ -19,7 +19,7 @@ def _render(body: str) -> dict[str, Profile]:
 
 
 def test_golden_example() -> None:
-    generated = to_json(render(parse_file(EXAMPLE)))
+    generated = to_json(render(parse_file(EXAMPLE), current="home"))
     if os.environ.get("UPDATE_GOLDEN"):
         EXPECTED.write_text(generated, encoding="utf-8")
     assert generated == EXPECTED.read_text(encoding="utf-8")
@@ -105,3 +105,64 @@ def test_guid_is_stable_uuid_of_name() -> None:
 def test_bash_c_quoting() -> None:
     assert bash_c("echo hi; ls") == 'bash -c "echo hi; ls"'
     assert bash_c('echo "$HOME"') == "bash -c 'echo \"$HOME\"'"
+
+
+LANS = (
+    '<lan id="home" subnets="10.0.0.0/24"><host name="h" ip="10.0.0.5"/></lan>'
+    '<lan id="beach" subnets="10.9.0.0/24">'
+    '<host name="gw" ip="10.9.0.1" tailnet="100.64.0.1">'
+    '<host name="router" ip="10.9.0.2"><host name="nas" ip="10.9.0.3" tailnet="100.64.0.3"/></host>'
+    '<serial dev="/dev/ttyUSB0" baud="115200" name="board"/>'
+    "</host>"
+    '<host name="tv" ip="10.9.0.4" mac="00:11:22:33:44:55"/>'
+    "</lan>"
+)
+
+
+def _render_at(current: str | None) -> dict[str, Profile]:
+    cfg = parse_bytes(f"<profiles>{OPTS}{LANS}</profiles>".encode())
+    return {p.name: p for p in render(cfg, current)}
+
+
+def test_names_do_not_depend_on_location() -> None:
+    assert list(_render_at("home")) == list(_render_at("beach")) == list(_render_at(None))
+
+
+def test_at_home_lan_uses_lan_addresses() -> None:
+    p = _render_at("beach")
+    assert p["router"].command == "ssh -q -o ProxyCommand='ssh -q -W %h:%p root@10.9.0.1' root@10.9.0.2"
+    assert p["board serial via gw"].command == "ssh -q -t root@10.9.0.1 picocom -b 115200 /dev/ttyUSB0"
+    assert [n for n, x in p.items() if x.away] == ["h"]  # only the other lan's host
+
+
+def test_away_bastion_goes_through_tailnet() -> None:
+    p = _render_at("home")
+    assert p["router"].command == "ssh -q -o ProxyCommand='ssh -q -W %h:%p root@100.64.0.1' root@10.9.0.2"
+    assert not p["router"].away
+    # deeper hop still chains through the tailnet-reached gateway
+    assert "root@100.64.0.1" in p["nas"].command
+    assert p["board serial via gw"].command == "ssh -q -t root@100.64.0.1 picocom -b 115200 /dev/ttyUSB0"
+    assert not p["board serial via gw"].away
+    # direct LAN-ip profiles are kept, but flagged
+    assert p["gw"].command == "ssh -q root@10.9.0.1"
+    assert p["gw"].away
+    assert p["tv"].away
+    assert p["tv WOL"].away
+    assert not p["gw tailnet"].away
+    assert not p["h"].away
+
+
+def test_nested_tailnet_profile_is_direct() -> None:
+    for current in ("home", "beach"):
+        assert _render_at(current)["nas tailnet"].command == "ssh -q root@100.64.0.3"
+
+
+def test_away_from_everything() -> None:
+    p = _render_at(None)
+    assert p["h"].away
+    assert "root@100.64.0.1" in p["router"].command
+
+
+def test_lan_without_subnets_is_never_away() -> None:
+    cfg = parse_bytes(f'<profiles>{OPTS}<lan id="cloud"><host name="vps" ip="203.0.113.1"/></lan></profiles>'.encode())
+    assert not render(cfg, None)[0].away

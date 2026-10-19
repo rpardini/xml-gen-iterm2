@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ipaddress
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -28,7 +29,7 @@ _HOST_ATTRS = frozenset({"name", "ip", "tailnet", "user", "users", "port", "tags
 _ATTRS: dict[str, frozenset[str]] = {
     "profiles": frozenset(),
     "defaults": frozenset({"user", "ssh-opts", "ssh-auth-sock", "wol-cmd"}),
-    "lan": frozenset({"id"}),
+    "lan": frozenset({"id", "subnets"}),
     "group": frozenset({"name", "user", "users", "port", "tags"}),
     "host": _HOST_ATTRS,
     "ssh": frozenset({"name", "user", "port"}),
@@ -245,6 +246,16 @@ def _parse_children(node: _Node, ctx: _Ctx) -> tuple[Group | Host, ...]:
     return tuple(out)
 
 
+def _subnets(node: _Node) -> tuple[ipaddress.IPv4Network | ipaddress.IPv6Network, ...]:
+    out: list[ipaddress.IPv4Network | ipaddress.IPv6Network] = []
+    for raw in node.attrs.get("subnets", "").split():
+        try:
+            out.append(ipaddress.ip_network(raw, strict=False))
+        except ValueError:
+            raise node.fail(f"bad subnet {raw!r} (want CIDR, e.g. 192.168.1.0/24)") from None
+    return tuple(dict.fromkeys(out))
+
+
 def parse_bytes(data: bytes) -> Config:
     root = _read_tree(data)
     if root.tag != "profiles":
@@ -269,6 +280,7 @@ def parse_bytes(data: bytes) -> Config:
     lans: list[Lan] = []
     loose: list[_Node] = []
     seen_ids: set[str] = set()
+    seen_nets: dict[ipaddress.IPv4Network | ipaddress.IPv6Network, str] = {}
 
     def flush_loose() -> None:
         if loose:
@@ -283,7 +295,12 @@ def parse_bytes(data: bytes) -> Config:
             if lan_id in seen_ids:
                 raise child.fail(f"duplicate lan id {lan_id!r}")
             seen_ids.add(lan_id)
-            lans.append(Lan(id=lan_id, children=_parse_children(child, base)))
+            subnets = _subnets(child)
+            for net in subnets:
+                if net in seen_nets:
+                    raise child.fail(f"subnet {net} already belongs to lan {seen_nets[net]!r}")
+                seen_nets[net] = lan_id
+            lans.append(Lan(id=lan_id, children=_parse_children(child, base), subnets=subnets))
         elif child.tag != "defaults":
             loose.append(child)
     flush_loose()

@@ -6,15 +6,45 @@ import json
 import shlex
 from collections import Counter
 from collections.abc import Iterator
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from xml_gen_iterm2.model import DEFAULT_PORT, Config, Defaults, Group, Host, Kind, OciConsole, Profile, Serial
+from xml_gen_iterm2.model import DEFAULT_PORT, Config, Defaults, Group, Host, Kind, Lan, OciConsole, Profile, Serial
 from xml_gen_iterm2.parse import ConfigError
 
 _OCI_RSA = "-oHostKeyAlgorithms=+ssh-rsa -oPubkeyAcceptedAlgorithms=+ssh-rsa"
 
-Chain = tuple[Host, ...]  # bastions, outermost first
+
+@dataclass(frozen=True)
+class Hop:
+    """A bastion and the address used to reach it from where we are."""
+
+    host: Host
+    address: str
+    via_tailnet: bool
+
+
+Chain = tuple[Hop, ...]  # bastions, outermost first
+
+
+def resolve(host: Host, *, away: bool) -> tuple[str, bool]:
+    """(address, via_tailnet) to reach `host` itself: its LAN ip at home, its tailnet address when away (if any)."""
+    if host.tailnet and (away or not host.ip):
+        return host.tailnet, True
+    return host.address, False
+
+
+def extend(chain: Chain, bastion: Host, *, away: bool) -> Chain:
+    """Chain to reach hosts behind `bastion`. A tailnet hop is reachable from anywhere, so it restarts the chain."""
+    address, via_tailnet = resolve(bastion, away=away)
+    hop = Hop(bastion, address, via_tailnet)
+    return (hop,) if via_tailnet else (*chain, hop)
+
+
+def reachable(chain: Chain, *, away: bool) -> bool:
+    """Whether something reached through `chain` (empty = directly) is likely reachable from where we are."""
+    return not away or (bool(chain) and chain[0].via_tailnet)
 
 
 def bash_c(script: str) -> str:
@@ -28,14 +58,14 @@ def _proxy_opt(chain: Chain, d: Defaults) -> str:
     """`-o ProxyCommand=...` to reach the last host of `chain` (itself reached through the ones before it)."""
     if not chain:
         return ""
-    bastion = chain[-1]
+    hop = chain[-1]
     parts = [
         "ssh",
         d.ssh_opts,
         # ssh expands %-tokens in ProxyCommand; escape the inner hop's so they reach the right ssh
         _proxy_opt(chain[:-1], d).replace("%", "%%"),
-        _port_opt(bastion.port),
-        f"-W %h:%p {bastion.user}@{bastion.address}",
+        _port_opt(hop.host.port),
+        f"-W %h:%p {hop.host.user}@{hop.address}",
     ]
     return f"-o ProxyCommand={shlex.quote(_join(parts))}"
 
@@ -82,67 +112,80 @@ def _oci_command(console: OciConsole, d: Defaults) -> str:
     return bash_c(f"export SSH_AUTH_SOCK={Path(d.ssh_auth_sock).expanduser()}; {ssh}")
 
 
-def _serial_command(adapter: Host, serial: Serial, chain: Chain, d: Defaults) -> str:
+def _serial_profile(adapter: Host, serial: Serial, chain: Chain, d: Defaults, *, away: bool) -> Profile:
+    address, via_tailnet = resolve(adapter, away=away)
+    if via_tailnet:
+        chain = ()
     picocom = _join(["picocom", "-b", str(serial.baud), serial.args or "", shlex.quote(serial.dev)])
-    ssh = ssh_command(serial.user or adapter.user, adapter.address, adapter.port, chain, d, tty=True)
-    return f"{ssh} {picocom}"
+    ssh = ssh_command(serial.user or adapter.user, address, adapter.port, chain, d, tty=True)
+    return Profile(
+        f"{serial.target_name} serial via {adapter.name}",
+        f"{ssh} {picocom}",
+        _tags(adapter, "serial"),
+        Kind.SERIAL,
+        away=not via_tailnet and not reachable(chain, away=away),
+    )
 
 
-def host_profiles(host: Host, chain: Chain, d: Defaults) -> list[Profile]:
-    """Profiles belonging to `host` itself (not to hosts nested in it)."""
+def host_profiles(host: Host, chain: Chain, d: Defaults, *, away: bool = False) -> list[Profile]:
+    """Profiles belonging to `host` itself (not to hosts nested in it). `away`: its LAN isn't the current one."""
     profiles: list[Profile] = []
     for base, user, port in _ssh_targets(host):
         for address, suffix, extra in _addresses(host):
-            cmd = ssh_command(user, address, port, chain, d)
-            profiles.append(Profile(base + suffix, cmd, _tags(host, *extra), Kind.SSH))
+            if suffix:  # tailnet: reachable from anywhere, no bastions needed
+                cmd, dim = ssh_command(user, address, port, (), d), False
+            else:
+                cmd, dim = ssh_command(user, address, port, chain, d), not reachable(chain, away=away)
+            profiles.append(Profile(base + suffix, cmd, _tags(host, *extra), Kind.SSH, away=dim))
 
     if host.mac and host.ip and not chain:
         for base, user, _port in _ssh_targets(host)[: len(host.users)]:
             wait = f"until nc -z {host.ip} {host.port}; do sleep 2; done"
             script = f"{d.wol_cmd} {host.mac}; {wait}; {ssh_command(user, host.ip, host.port, chain, d)}"
-            profiles.append(Profile(f"{base} WOL", bash_c(script), _tags(host, "wol"), Kind.WOL))
+            profiles.append(Profile(f"{base} WOL", bash_c(script), _tags(host, "wol"), Kind.WOL, away=away))
 
     profiles.extend(
         Profile(c.name or f"{host.name} CONSOLE", _oci_command(c, d), _tags(host, "ociConsole"), Kind.CONSOLE)
         for c in host.consoles
     )
 
-    profiles.extend(
-        Profile(
-            f"{s.target_name} serial via {host.name}",
-            _serial_command(host, s, chain, d),
-            _tags(host, "serial"),
-            Kind.SERIAL,
-        )
-        for s in host.serials
-    )
+    profiles.extend(_serial_profile(host, s, chain, d, away=away) for s in host.serials)
     return profiles
 
 
-def walk_hosts(config: Config) -> Iterator[tuple[Host, Chain]]:
-    """Every host in document order, with the bastion chain used to reach it."""
+def is_away(lan: Lan, current: str | None) -> bool:
+    """A lan without subnets (e.g. cloud stuff with public IPs) is reachable from anywhere, so never away."""
+    return bool(lan.subnets) and lan.id != current
 
-    def visit(host: Host, chain: Chain) -> Iterator[tuple[Host, Chain]]:
-        yield host, chain
+
+def walk_hosts(config: Config, current: str | None = None) -> Iterator[tuple[Host, Chain, bool]]:
+    """Every host in document order, with the bastion chain used to reach it and whether its LAN is away."""
+
+    def visit(host: Host, chain: Chain, away: bool) -> Iterator[tuple[Host, Chain, bool]]:
+        yield host, chain, away
         for serial in host.serials:
             if serial.target is not None:
-                yield from visit(serial.target, chain)  # same network as the adapter host
+                yield from visit(serial.target, chain, away)  # same network as the adapter host
         for sub in host.hosts:
-            yield from visit(sub, (*chain, host))
+            yield from visit(sub, extend(chain, host, away=away), away)
 
-    def children(items: tuple[Group | Host, ...]) -> Iterator[tuple[Host, Chain]]:
+    def children(items: tuple[Group | Host, ...], away: bool) -> Iterator[tuple[Host, Chain, bool]]:
         for item in items:
             if isinstance(item, Group):
-                yield from children(item.children)
+                yield from children(item.children, away)
             else:
-                yield from visit(item, ())
+                yield from visit(item, (), away)
 
     for lan in config.lans:
-        yield from children(lan.children)
+        yield from children(lan.children, is_away(lan, current))
 
 
-def render(config: Config) -> list[Profile]:
-    profiles = [p for host, chain in walk_hosts(config) for p in host_profiles(host, chain, config.defaults)]
+def render(config: Config, current: str | None = None) -> list[Profile]:
+    """`current`: id of the LAN we're in (None = away from all of them)."""
+    d = config.defaults
+    profiles = [
+        p for host, chain, away in walk_hosts(config, current) for p in host_profiles(host, chain, d, away=away)
+    ]
     if dupes := sorted(name for name, n in Counter(p.name for p in profiles).items() if n > 1):
         raise ConfigError(f"duplicate profile name(s): {', '.join(map(repr, dupes))}")
     return profiles

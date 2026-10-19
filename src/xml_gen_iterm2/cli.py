@@ -15,11 +15,24 @@ from rich.syntax import Syntax
 
 from xml_gen_iterm2 import log as logmod
 from xml_gen_iterm2.log import log
+from xml_gen_iterm2.model import Config
 from xml_gen_iterm2.parse import ConfigError, parse_file
 from xml_gen_iterm2.render import render, to_json, walk_hosts
 from xml_gen_iterm2.tree import build_tree
+from xml_gen_iterm2.where import Detection, detect_lan, local_addresses
 
 DEFAULT_OUTPUT = Path("~/Library/Application Support/iTerm2/DynamicProfiles/nxcp.json").expanduser()
+
+
+def _where(cfg: Config, lan_override: str | None) -> Detection:
+    if lan_override is None:
+        return detect_lan(cfg, local_addresses())
+    if lan_override == "none":
+        return Detection(None, "forced via --lan none")
+    ids = [lan.id for lan in cfg.lans if lan.id]
+    if lan_override not in ids:
+        raise ConfigError(f"--lan {lan_override!r}: no such lan; known: {', '.join(ids) or 'none'}")
+    return Detection(lan_override, "forced via --lan")
 
 
 def _write_atomic(path: Path, content: str) -> None:
@@ -54,21 +67,30 @@ def _write_atomic(path: Path, content: str) -> None:
 )
 @click.option("--check", is_flag=True, help="Don't write; diff against OUTPUT and exit 1 if it would change.")
 @click.option("--no-tree", is_flag=True, help="Don't print the tree.")
+@click.option(
+    "--lan",
+    "lan_override",
+    metavar="ID|none",
+    help="Pretend we're in this lan (or in none of them) instead of detecting it from local addresses.",
+)
 @click.option("-v", "--verbose", is_flag=True, help="Debug logging.")
-def main(config: Path, output: Path, to_stdout: bool, check: bool, no_tree: bool, verbose: bool) -> None:
+def main(
+    config: Path, output: Path, to_stdout: bool, check: bool, no_tree: bool, lan_override: str | None, verbose: bool
+) -> None:
     """Generate iTerm2 Dynamic Profiles from CONFIG (XML)."""
     console = Console(stderr=to_stdout)
     logmod.setup(console, verbose=verbose)
 
     try:
         cfg = parse_file(config)
-        profiles = render(cfg)
+        where = _where(cfg, lan_override)
+        profiles = render(cfg, where.lan_id)
     except ConfigError as e:
         log.error(f"[bold red]{escape(str(config))}[/]: {escape(str(e))}")
         sys.exit(1)
 
     if not no_tree:
-        tree, _ = build_tree(cfg, str(config))
+        tree, _ = build_tree(cfg, str(config), where)
         console.print(tree)
     log.info(f"{len(profiles)} profiles from {sum(1 for _ in walk_hosts(cfg))} hosts")
 

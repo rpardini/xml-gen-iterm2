@@ -151,6 +151,68 @@
             "Command": "ssh -o GlobalKnownHostsFile=/dev/null -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no -A -X -Y -p 22222 root@100.64.0.30"
         },
         {
+            "Name": "Beach gateway",
+            "Guid": "eef14e8c-fb32-5b90-ad69-4bde5744f4f1",
+            "Custom Command": "Yes",
+            "Badge Text": "Beach gateway",
+            "Tags": [
+                "Beach"
+            ],
+            "Command": "ssh -o GlobalKnownHostsFile=/dev/null -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no -A -X -Y root@198.18.0.10"
+        },
+        {
+            "Name": "Beach gateway tailnet",
+            "Guid": "4f776b04-a0e5-50fb-8b93-8d9a994180e4",
+            "Custom Command": "Yes",
+            "Badge Text": "Beach gateway tailnet",
+            "Tags": [
+                "Beach",
+                "tailnet"
+            ],
+            "Command": "ssh -o GlobalKnownHostsFile=/dev/null -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no -A -X -Y root@100.64.0.50"
+        },
+        {
+            "Name": "Beach OpenWRT",
+            "Guid": "73b7ac83-4d08-5d3f-b2b5-9e84e2249e72",
+            "Custom Command": "Yes",
+            "Badge Text": "Beach OpenWRT",
+            "Tags": [
+                "Beach"
+            ],
+            "Command": "ssh -o GlobalKnownHostsFile=/dev/null -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no -A -X -Y -o ProxyCommand='ssh -o GlobalKnownHostsFile=/dev/null -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no -A -X -Y -W %h:%p root@100.64.0.50' root@198.18.0.1"
+        },
+        {
+            "Name": "Beach NAS",
+            "Guid": "35c5ae07-bfeb-5b40-81bc-b3756fdccb8a",
+            "Custom Command": "Yes",
+            "Badge Text": "Beach NAS",
+            "Tags": [
+                "Beach"
+            ],
+            "Command": "ssh -o GlobalKnownHostsFile=/dev/null -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no -A -X -Y -o ProxyCommand='ssh -o GlobalKnownHostsFile=/dev/null -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no -A -X -Y -o ProxyCommand='\"'\"'ssh -o GlobalKnownHostsFile=/dev/null -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no -A -X -Y -W %%h:%%p root@100.64.0.50'\"'\"' -W %h:%p root@198.18.0.1' root@198.18.0.20"
+        },
+        {
+            "Name": "Beach NAS tailnet",
+            "Guid": "f9bc1dbb-3382-5c3b-ab5c-dfe143501d5b",
+            "Custom Command": "Yes",
+            "Badge Text": "Beach NAS tailnet",
+            "Tags": [
+                "Beach",
+                "tailnet"
+            ],
+            "Command": "ssh -o GlobalKnownHostsFile=/dev/null -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no -A -X -Y root@100.64.0.51"
+        },
+        {
+            "Name": "Beach TV box",
+            "Guid": "145bab35-641c-5030-b736-30c80e82cd5e",
+            "Custom Command": "Yes",
+            "Badge Text": "Beach TV box",
+            "Tags": [
+                "Beach"
+            ],
+            "Command": "ssh -o GlobalKnownHostsFile=/dev/null -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no -A -X -Y root@198.18.0.30"
+        },
+        {
             "Name": "OCI arm64 one",
             "Guid": "07698ae3-ccbf-5c94-b31a-d6e6364c5f81",
             "Custom Command": "Yes",
