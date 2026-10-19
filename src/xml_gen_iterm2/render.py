@@ -150,7 +150,9 @@ def host_profiles(host: Host, chain: Chain, d: Defaults, *, away: bool = False) 
                 cmd, dim = ssh_command(user, address, port, chain, d), not reachable(chain, away=away)
             profiles.append(Profile(base + suffix, cmd, _tags(host, *extra), Kind.SSH, away=dim))
 
-    if host.mac and host.ip and not chain:
+    if host.wol and chain:
+        raise ConfigError(f'host {host.name!r}: wol="true" on a host behind a bastion; magic packets can\'t get there')
+    if host.wol and host.mac and host.ip:
         for base, user, _port in _ssh_targets(host)[: len(host.users)]:
             wait = f"until nc -z {host.ip} {host.port}; do sleep 2; done"
             script = f"{d.wol_cmd} {host.mac}; {wait}; {ssh_command(user, host.ip, host.port, chain, d)}"

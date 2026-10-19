@@ -8,10 +8,10 @@
         <group name="Home">
             <group name="bench">
                 <!-- simplest case: one profile, ssh root@ip -->
-                <host name="Board A" ip="192.0.2.10"/>
+                <host name="Board A" ip="192.0.2.10" mac="00:11:22:33:44:aa"/>  <!-- mac alone: metadata only -->
 
-                <!-- several users: one profile per user, user appended to the name; mac adds WOL profiles -->
-                <host name="Laptop" ip="192.0.2.19" mac="00:11:22:33:44:55" users="root alice">
+                <!-- several users: one profile per user, user appended to the name; wol="true" (+ mac) adds WOL profiles -->
+                <host name="Laptop" ip="192.0.2.19" mac="00:11:22:33:44:55" wol="true" users="root alice">
                     <!-- extra explicit ssh profile -->
                     <ssh name="Laptop runner" user="runner" port="2222"/>
 

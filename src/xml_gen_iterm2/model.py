@@ -78,6 +78,7 @@ class Host:
     ip: str | None = None
     tailnet: str | None = None
     mac: str | None = None
+    wol: bool = False  # emit "<name> WOL" profiles (needs mac + ip)
     ipv6: str | None = None
     note: str | None = None
     ssh: tuple[SshEntry, ...] = ()

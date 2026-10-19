@@ -43,7 +43,7 @@ See [`examples/example.xml`](examples/example.xml) for a working example of ever
 | `<defaults>`    | `user` (root), `ssh-opts`, `ssh-auth-sock` (used by OCI consoles), `wol-cmd`        | nothing                                                      |
 | `<lan>`         | `id`, `subnets` (space-separated CIDRs)                                             | nothing itself; drives location-aware routing (below)        |
 | `<group>`       | `name`, `user`/`users`, `port`, `tags`                                              | nested names are joined with `/` into the first tag; the other attributes are inherited |
-| `<host>`        | `name`, `ip` and/or `tailnet`, `user`/`users`, `port`, `tags`, `mac`, `ipv6`, `note` | one ssh profile per user × address                           |
+| `<host>`        | `name`, `ip` and/or `tailnet`, `user`/`users`, `port`, `tags`, `mac`, `wol`, `ipv6`, `note` | one ssh profile per user × address                           |
 | `<ssh>`         | `name`, `user`, `port`                                                              | one extra ssh profile per address                            |
 | `<serial>`      | `dev`, `baud`, `user`, `args`, `name`                                               | `<target> serial via <host>`: `ssh -t host` + picocom wrapper |
 | `<oci-console>` | `connection` + `instance`, or `paste` (the raw string from OCI's web console)       | `<host> CONSOLE` (tag `ociConsole`)                          |
@@ -51,8 +51,10 @@ See [`examples/example.xml`](examples/example.xml) for a working example of ever
 Rules:
 - **Users**: with more than one user, the user is appended to the profile name.
 - **tailnet**: generates an extra `<name> tailnet` profile, tagged `tailnet`. A host can be tailnet-only.
-- **mac**: generates `<name> WOL`, which runs `wakeonlan`, waits for the ssh port, then connects (tag `wol`). This
-  only happens for hosts that have a LAN `ip` and aren't behind a bastion.
+- **`wol="true"`** (needs `mac` and a LAN `ip`): generates `<name> WOL`, which runs `wol-cmd`, waits for the ssh
+  port, then connects (tag `wol`). It isn't allowed on hosts behind a bastion. A `mac` without `wol` is metadata only.
+  iTerm2 doesn't run commands through your login shell, so give `wol-cmd` a full path such as
+  `/opt/homebrew/bin/wakeonlan`.
 - **`<host>` inside `<host>`**: the parent is used as a bastion via `ProxyCommand`, and deeper nesting chains the
   bastions. A nested host inherits its enclosing *group's* users, port and tags, not the parent host's.
 - **Serial sessions** close when picocom quits normally, rather than restarting. picocom locks the port, so the

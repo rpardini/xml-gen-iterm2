@@ -25,7 +25,7 @@ from xml_gen_iterm2.model import (
 
 _MAC_RE = re.compile(r"[0-9A-Fa-f]{2}(:[0-9A-Fa-f]{2}){5}")
 
-_HOST_ATTRS = frozenset({"name", "ip", "tailnet", "user", "users", "port", "tags", "mac", "ipv6", "note"})
+_HOST_ATTRS = frozenset({"name", "ip", "tailnet", "user", "users", "port", "tags", "mac", "wol", "ipv6", "note"})
 _ATTRS: dict[str, frozenset[str]] = {
     "profiles": frozenset(),
     "defaults": frozenset({"user", "ssh-opts", "ssh-auth-sock", "wol-cmd"}),
@@ -124,6 +124,13 @@ def _int(node: _Node, attr: str, lo: int, hi: int) -> int | None:
     return value
 
 
+def _bool(node: _Node, attr: str) -> bool:
+    raw = node.attrs.get(attr, "false").strip().lower()
+    if raw not in {"true", "false"}:
+        raise node.fail(f"{attr}={raw!r} must be 'true' or 'false'")
+    return raw == "true"
+
+
 def _users(node: _Node) -> tuple[str, ...] | None:
     if "user" in node.attrs and "users" in node.attrs:
         raise node.fail("use either 'user' or 'users', not both")
@@ -211,6 +218,11 @@ def _parse_host(node: _Node, ctx: _Ctx, *, leaf: bool = False) -> Host:
     mac = node.attrs.get("mac", "").strip() or None
     if mac is not None and not _MAC_RE.fullmatch(mac):
         raise node.fail(f"bad mac address {mac!r}")
+    wol = _bool(node, "wol")
+    if wol and mac is None:
+        raise node.fail("wol=\"true\" needs a 'mac'")
+    if wol and ip is None:
+        raise node.fail("wol=\"true\" needs a LAN 'ip' (magic packets don't cross the tailnet)")
 
     tags = _dedupe(("/".join(own.path),) if own.path else ()) + _dedupe(own.tags)
     by_tag: dict[str, list[_Node]] = {}
@@ -225,6 +237,7 @@ def _parse_host(node: _Node, ctx: _Ctx, *, leaf: bool = False) -> Host:
         ip=ip,
         tailnet=tailnet,
         mac=mac,
+        wol=wol,
         ipv6=node.attrs.get("ipv6", "").strip() or None,
         note=node.attrs.get("note", "").strip() or None,
         ssh=tuple(_parse_ssh(c, name, own) for c in by_tag.get("ssh", [])),

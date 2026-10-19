@@ -33,11 +33,12 @@ def test_users_and_tailnet_multiply() -> None:
     assert p["h b tailnet"].tags == ("tailnet",)
 
 
-def test_wol_only_for_direct_lan_hosts() -> None:
+def test_wol_only_when_asked() -> None:
     p = _render(
-        '<host name="h" ip="10.0.0.1" mac="00:11:22:33:44:55" port="2222">'
+        '<host name="h" ip="10.0.0.1" mac="00:11:22:33:44:55" wol="true" port="2222">'
         '<host name="inner" ip="10.0.0.2" mac="00:11:22:33:44:66"/></host>'
         '<host name="t" tailnet="100.64.0.1" mac="00:11:22:33:44:77"/>'
+        '<host name="m" ip="10.0.0.3" mac="00:11:22:33:44:88"/>'
     )
     assert p["h WOL"].kind is Kind.WOL
     assert p["h WOL"].command == (
@@ -47,6 +48,12 @@ def test_wol_only_for_direct_lan_hosts() -> None:
     assert "inner WOL" not in p
     assert "t tailnet WOL" not in p
     assert "t WOL" not in p
+    assert "m WOL" not in p  # mac without wol="true" is just metadata
+
+
+def test_wol_behind_bastion_is_an_error() -> None:
+    with pytest.raises(ConfigError, match="behind a bastion"):
+        _render('<host name="b" ip="1.1.1.1"><host name="i" ip="2.2.2.2" mac="00:11:22:33:44:55" wol="true"/></host>')
 
 
 def test_bastion_chain_escapes_tokens() -> None:
@@ -116,7 +123,7 @@ LANS = (
     '<host name="router" ip="10.9.0.2"><host name="nas" ip="10.9.0.3" tailnet="100.64.0.3"/></host>'
     '<serial dev="/dev/ttyUSB0" baud="115200" name="board"/>'
     "</host>"
-    '<host name="tv" ip="10.9.0.4" mac="00:11:22:33:44:55"/>'
+    '<host name="tv" ip="10.9.0.4" mac="00:11:22:33:44:55" wol="true"/>'
     "</lan>"
 )
 
