@@ -22,7 +22,39 @@ from xml_gen_iterm2.render import render, to_json, walk_hosts
 from xml_gen_iterm2.tree import build_tree
 from xml_gen_iterm2.where import Detection, detect_lan, local_addresses
 
+CONFIG_NAME = "iterm2-profiles.xml"
 DEFAULT_OUTPUT = Path("~/Library/Application Support/iTerm2/DynamicProfiles/nxcp.json").expanduser()
+
+
+def default_configs() -> list[tuple[Path, str]]:
+    """Candidate configs in priority order, as (path, where it is). Evaluated at call time (HOME may change)."""
+    home = Path.home()
+    return [
+        (home / "Library/CloudStorage/Dropbox" / CONFIG_NAME, "Dropbox"),
+        (home / "Dropbox" / CONFIG_NAME, "Dropbox"),
+        (Path.cwd() / CONFIG_NAME, "current directory"),
+    ]
+
+
+def find_config() -> tuple[Path, str] | None:
+    """First existing default config. Warns about a lower-priority copy that differs from the one used."""
+    existing = [(p, origin) for p, origin in default_configs() if p.is_file()]
+    if not existing:
+        return None
+    chosen, origin = existing[0]
+    for other, other_origin in existing[1:]:
+        if other.resolve() != chosen.resolve() and other.read_bytes() != chosen.read_bytes():
+            log.warning(f"ignoring {_tilde(other)} ({other_origin}): it differs from {_tilde(chosen)} ({origin})")
+    return chosen, origin
+
+
+def _tilde(path: Path) -> str:
+    """Absolute path with $HOME shown as ~."""
+    absolute = path.expanduser().absolute()
+    try:
+        return f"~/{absolute.relative_to(Path.home())}"
+    except ValueError:
+        return str(absolute)
 
 
 def _where(cfg: Config, lan_override: str | None) -> Detection:
@@ -53,7 +85,7 @@ def _write_atomic(path: Path, content: str) -> None:
 @click.argument(
     "config",
     type=click.Path(exists=True, dir_okay=False, path_type=Path),
-    default="iterm2-profiles.xml",
+    required=False,
 )
 @click.option(
     "-o",
@@ -76,11 +108,32 @@ def _write_atomic(path: Path, content: str) -> None:
 )
 @click.option("-v", "--verbose", is_flag=True, help="Debug logging.")
 def main(
-    config: Path, output: Path, to_stdout: bool, check: bool, no_tree: bool, lan_override: str | None, verbose: bool
+    config: Path | None,
+    output: Path,
+    to_stdout: bool,
+    check: bool,
+    no_tree: bool,
+    lan_override: str | None,
+    verbose: bool,
 ) -> None:
-    """Generate iTerm2 Dynamic Profiles from CONFIG (XML)."""
+    """Generate iTerm2 Dynamic Profiles from CONFIG (XML).
+
+    Without CONFIG, the first existing of: Dropbox (~/Library/CloudStorage/Dropbox or ~/Dropbox), then the current
+    directory, each as iterm2-profiles.xml.
+    """
     console = Console(stderr=to_stdout)
     logmod.setup(console, verbose=verbose)
+
+    if config is None:
+        found = find_config()
+        if found is None:
+            tried = ", ".join(_tilde(p) for p, _ in default_configs())
+            log.error(f"no config given and none found; tried: {escape(tried)}")
+            sys.exit(1)
+        config, origin = found
+    else:
+        origin = "given on command line"
+    log.info(f"reading [bold]{escape(_tilde(config))}[/] ({origin})")
 
     try:
         cfg = parse_file(config)
@@ -92,7 +145,7 @@ def main(
         sys.exit(1)
 
     if not no_tree:
-        tree, _ = build_tree(cfg, str(config), where, kube)
+        tree, _ = build_tree(cfg, _tilde(config), where, kube)
         console.print(tree)
     log.info(f"{len(profiles)} profiles from {sum(1 for _ in walk_hosts(cfg))} hosts")
 

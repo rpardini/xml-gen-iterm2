@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
 from click.testing import CliRunner
 
 from xml_gen_iterm2.cli import main
@@ -49,3 +50,62 @@ def test_lan_none_dims_everything() -> None:
     result = CliRunner().invoke(main, [str(EXAMPLE), "--stdout", "--lan", "none"])
     assert result.exit_code == 0
     assert "away from all lans" in result.stderr
+
+
+def _home_with(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, *, dropbox: str | None, cwd: str | None) -> Path:
+    home = tmp_path / "home"
+    work = tmp_path / "work"
+    (home / "Library/CloudStorage/Dropbox").mkdir(parents=True)
+    work.mkdir()
+    if dropbox is not None:
+        (home / "Library/CloudStorage/Dropbox/iterm2-profiles.xml").write_text(dropbox)
+    if cwd is not None:
+        (work / "iterm2-profiles.xml").write_text(cwd)
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.chdir(work)
+    return home
+
+
+XML_A = '<profiles><host name="a" ip="1.1.1.1"/></profiles>'
+XML_B = '<profiles><host name="b" ip="2.2.2.2"/></profiles>'
+
+
+def test_default_config_prefers_dropbox(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    _home_with(tmp_path, monkeypatch, dropbox=XML_A, cwd=XML_B)
+    result = CliRunner().invoke(main, ["--stdout", "--lan", "none"])
+    assert result.exit_code == 0, result.output
+    assert [p["Name"] for p in json.loads(result.stdout)["Profiles"]] == ["a"]
+    assert "~/Library/CloudStorage/Dropbox/iterm2-profiles.xml" in result.stderr
+    assert "(Dropbox)" in result.stderr
+    assert "ignoring" in result.stderr  # cwd copy differs
+
+
+def test_default_config_falls_back_to_cwd(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    _home_with(tmp_path, monkeypatch, dropbox=None, cwd=XML_B)
+    result = CliRunner().invoke(main, ["--stdout", "--lan", "none"])
+    assert result.exit_code == 0, result.output
+    assert "(current directory)" in result.stderr
+    assert "ignoring" not in result.stderr
+
+
+def test_identical_copies_do_not_warn(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    _home_with(tmp_path, monkeypatch, dropbox=XML_A, cwd=XML_A)
+    result = CliRunner().invoke(main, ["--stdout", "--lan", "none"])
+    assert result.exit_code == 0
+    assert "ignoring" not in result.stderr
+
+
+def test_no_config_found(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    _home_with(tmp_path, monkeypatch, dropbox=None, cwd=None)
+    result = CliRunner().invoke(main, ["--stdout"])
+    assert result.exit_code == 1
+    assert "none found" in result.stderr
+
+
+def test_explicit_config_wins(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    _home_with(tmp_path, monkeypatch, dropbox=XML_A, cwd=None)
+    other = tmp_path / "other.xml"
+    other.write_text(XML_B)
+    result = CliRunner().invoke(main, [str(other), "--stdout", "--lan", "none"])
+    assert [p["Name"] for p in json.loads(result.stdout)["Profiles"]] == ["b"]
+    assert "(given on command line)" in result.stderr

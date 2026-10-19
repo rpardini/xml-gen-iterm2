@@ -5,12 +5,16 @@ ssh logins (multi-user, tailnet, bastion chains), picocom serial consoles reache
 instance consoles, and wake-on-LAN.
 
 ```sh
-uv run xml-gen-iterm2                       # reads ./iterm2-profiles.xml, writes ~/Library/Application Support/iTerm2/DynamicProfiles/nxcp.json
+uv run xml-gen-iterm2                       # finds iterm2-profiles.xml (see below), writes ~/Library/Application Support/iTerm2/DynamicProfiles/nxcp.json
 uv run xml-gen-iterm2 my.xml -o out.json    # explicit paths
 uv run xml-gen-iterm2 --check               # diff against the existing output, exit 1 if it'd change
 uv run xml-gen-iterm2 --stdout --no-tree    # JSON to stdout
 uv run xml-gen-iterm2 --lan maresias        # pretend to be somewhere else (or --lan none)
 ```
+
+Without a CONFIG argument, the first `iterm2-profiles.xml` that exists is used: in Dropbox
+(`~/Library/CloudStorage/Dropbox/`, then `~/Dropbox/`), then in the current directory. The path it reads from is
+logged on every run, along with a warning if a lower-priority copy exists and differs.
 
 Every run prints a tree of what was parsed, where you are, and which profiles each host produces.
 
