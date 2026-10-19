@@ -46,7 +46,7 @@ See [`examples/example.xml`](examples/example.xml) for a working example of ever
 | `<host>`        | `name`, `ip` and/or `tailnet`, `user`/`users`, `port`, `tags`, `mac`, `wol`, `id`, `hypervisor` + `virsh-domain`, `hotkey`, `hotkey-user`, `style`, `ipv6`, `note` | one ssh profile per user × address                           |
 | `<ssh>`         | `name`, `user`, `port`                                                              | one extra ssh profile per address                            |
 | `<serial>`      | `dev`, `baud`, `user`, `args`, `name`                                               | `<target> serial via <host>`: `ssh -t host` + picocom wrapper |
-| `<local>`       | `name` (Local), `hotkey`, `style`, `tags`; only directly under `<profiles>`        | a plain local login-shell profile (tag `local`)              |
+| `<local>`       | `name` (Local), `hotkey`, `style`, `tags`, `kube`; only directly under `<profiles>` | a plain local login-shell profile (tag `local`)              |
 | `<oci-console>` | `connection` + `instance`, or `paste` (the raw string from OCI's web console)       | `<host> CONSOLE` (tag `ociConsole`)                          |
 
 Rules:
@@ -68,6 +68,16 @@ Rules:
   uses your normal window. Hotkey windows auto-hide when they lose focus, and animate. Using the same hotkey twice is
   an error. On Mac laptop and Magic keyboards, F-keys are media keys unless "Use F1, F2, etc. keys as standard
   function keys" is on, and F13 and above only exist on extended keyboards.
+- **Kubernetes contexts**: `<local kube="~/.kube/config ~/.kube/*.yaml">` (paths or globs; relative ones resolve
+  against the XML file) adds a `<local> k8s context <ctx>` profile for every context found, with tags `local`, `k8s`
+  and the context as badge. A context name that appears in two files gets the file name appended. Each profile runs
+  `/usr/bin/env KUBECONTEXT=<ctx> KUBECONFIG=<overlay>:<kubeconfig> <your login shell> -l`.
+  - **Why the overlay:** kubectl, k9s and helm ignore `KUBECONTEXT`, so the context is actually pinned by a tiny
+    overlay file containing only `current-context`, listed first in `KUBECONFIG`.
+  - **Where overlays live:** the generator writes them to `~/.kube/iterm2/` (`<defaults kube-overlay-dir="…">`
+    overrides it), only when it writes the output (not with `--stdout` or `--check`), and removes stale ones.
+  - **Safety:** your kubeconfigs are only read, never written, and their contents are never logged.
+  - **Re-run** the generator after adding or removing contexts.
 - **Serial sessions** close when picocom quits normally, rather than restarting. picocom locks the port, so the
   wrapper checks for a busy device first (`fuser`), shows who holds it, and waits for Enter. It also waits for Enter
   if picocom fails, so the error stays visible. virsh consoles behave the same way: they close on Ctrl+], and wait

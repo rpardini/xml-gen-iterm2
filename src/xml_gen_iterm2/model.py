@@ -39,6 +39,7 @@ class Defaults:
     ssh_opts: str = DEFAULT_SSH_OPTS
     ssh_auth_sock: str = ""
     wol_cmd: str = "wakeonlan"
+    kube_overlay_dir: str = "~/.kube/iterm2"
 
 
 @dataclass(frozen=True)
@@ -149,6 +150,7 @@ class Local:
     name: str
     tags: tuple[str, ...]
     hotkey: Hotkey | None = None
+    kube: tuple[str, ...] = ()  # kubeconfig paths/globs; one extra profile per context found
 
 
 class Kind(StrEnum):
@@ -158,6 +160,7 @@ class Kind(StrEnum):
     WOL = "wol"
     VIRSH = "virsh"
     LOCAL = "local"
+    KUBE = "kube"
 
 
 @dataclass(frozen=True)
@@ -168,6 +171,7 @@ class Profile:
     kind: Kind
     away: bool = False  # likely unreachable from the current LAN; only affects the tree, not the JSON
     hotkey: Hotkey | None = None
+    badge: str | None = None  # defaults to the name
 
     @property
     def guid(self) -> str:

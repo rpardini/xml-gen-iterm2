@@ -14,6 +14,7 @@ from rich.markup import escape
 from rich.syntax import Syntax
 
 from xml_gen_iterm2 import log as logmod
+from xml_gen_iterm2.kube import discover_all, sync_overlays
 from xml_gen_iterm2.log import log
 from xml_gen_iterm2.model import Config
 from xml_gen_iterm2.parse import ConfigError, parse_file
@@ -84,13 +85,14 @@ def main(
     try:
         cfg = parse_file(config)
         where = _where(cfg, lan_override)
-        profiles = render(cfg, where.lan_id)
+        kube = discover_all(cfg, config.resolve().parent)
+        profiles = render(cfg, where.lan_id, kube)
     except ConfigError as e:
         log.error(f"[bold red]{escape(str(config))}[/]: {escape(str(e))}")
         sys.exit(1)
 
     if not no_tree:
-        tree, _ = build_tree(cfg, str(config), where)
+        tree, _ = build_tree(cfg, str(config), where, kube)
         console.print(tree)
     log.info(f"{len(profiles)} profiles from {sum(1 for _ in walk_hosts(cfg))} hosts")
 
@@ -111,3 +113,8 @@ def main(
 
     _write_atomic(output, content)
     log.info(f"wrote [bold]{output}[/]")
+    overlay_dir = Path(cfg.defaults.kube_overlay_dir).expanduser()
+    written, removed = sync_overlays(kube, overlay_dir)
+    if written or removed:
+        files = len({c.file for contexts in kube.values() for c in contexts})
+        log.info(f"{written} kube contexts from {files} files; overlays in {overlay_dir} ({removed} stale removed)")

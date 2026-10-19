@@ -39,8 +39,8 @@ _NS_F1_FUNCTION_KEY = 0xF704  # NSF1FunctionKey; F(n) = this + n - 1
 _MODIFIERS = {"shift": 1 << 17, "ctrl": 1 << 18, "opt": 1 << 19, "cmd": 1 << 20}
 _ATTRS: dict[str, frozenset[str]] = {
     "profiles": frozenset(),
-    "local": frozenset({"name", "hotkey", "style", "tags"}),
-    "defaults": frozenset({"user", "ssh-opts", "ssh-auth-sock", "wol-cmd"}),
+    "local": frozenset({"name", "hotkey", "style", "tags", "kube"}),
+    "defaults": frozenset({"user", "ssh-opts", "ssh-auth-sock", "wol-cmd", "kube-overlay-dir"}),
     "lan": frozenset({"id", "subnets"}),
     "group": frozenset({"name", "user", "users", "port", "tags"}),
     "host": _HOST_ATTRS,
@@ -168,6 +168,7 @@ def _parse_local(node: _Node) -> Local:
         name=node.attrs.get("name", "").strip() or "Local",
         tags=_dedupe(("local", *node.attrs.get("tags", "").split())),
         hotkey=_parse_hotkey(node),
+        kube=tuple(node.attrs.get("kube", "").split()),
     )
 
 
@@ -379,6 +380,7 @@ def parse_bytes(data: bytes) -> Config:
             ssh_opts=d.attrs.get("ssh-opts", defaults.ssh_opts).strip(),
             ssh_auth_sock=d.attrs.get("ssh-auth-sock", defaults.ssh_auth_sock).strip(),
             wol_cmd=d.attrs.get("wol-cmd", defaults.wol_cmd).strip() or defaults.wol_cmd,
+            kube_overlay_dir=d.attrs.get("kube-overlay-dir", "").strip() or defaults.kube_overlay_dir,
         )
 
     base = _Ctx(path=(), users=(defaults.user,), port=DEFAULT_PORT, tags=())

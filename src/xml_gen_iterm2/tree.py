@@ -6,8 +6,18 @@ from rich.markup import escape
 from rich.text import Text
 from rich.tree import Tree
 
+from xml_gen_iterm2.kube import KubeDiscovery
 from xml_gen_iterm2.model import DEFAULT_PORT, Config, Group, Host, Kind, Profile
-from xml_gen_iterm2.render import Chain, Hypervisors, extend, host_profiles, index_hosts, is_away, reachable
+from xml_gen_iterm2.render import (
+    Chain,
+    Hypervisors,
+    extend,
+    host_profiles,
+    index_hosts,
+    is_away,
+    local_profiles,
+    reachable,
+)
 from xml_gen_iterm2.where import Detection
 
 _KIND_STYLE: dict[Kind, tuple[str, str]] = {
@@ -17,6 +27,7 @@ _KIND_STYLE: dict[Kind, tuple[str, str]] = {
     Kind.WOL: ("⏰", "cyan"),
     Kind.VIRSH: ("📺", "bright_magenta"),
     Kind.LOCAL: ("💻", "bright_white"),
+    Kind.KUBE: ("☸ ", "blue"),
 }
 
 
@@ -84,7 +95,7 @@ def _add_items(parent: Tree, items: tuple[Group | Host, ...], config: Config, hy
     return count
 
 
-def build_tree(config: Config, source: str, where: Detection) -> tuple[Tree, int]:
+def build_tree(config: Config, source: str, where: Detection, kube: KubeDiscovery | None = None) -> tuple[Tree, int]:
     """Returns the tree and the number of profiles it shows."""
     if where.lan_id:
         here = f"📍 you are in: [bold green]{escape(where.lan_id)}[/] [dim]({escape(where.reason)})[/dim]"
@@ -96,8 +107,12 @@ def build_tree(config: Config, source: str, where: Detection) -> tuple[Tree, int
     if config.locals:
         branch = root.add("[bold]💻 local[/]")
         for loc in config.locals:
-            branch.add(_profile_label(Profile(loc.name, "", loc.tags, Kind.LOCAL, hotkey=loc.hotkey)))
-            count += 1
+            contexts = (kube or {}).get(loc.name, ())
+            plain, *kubes = local_profiles(loc, contexts)
+            node = branch.add(_profile_label(plain))
+            for p, ctx in zip(kubes, contexts, strict=True):
+                node.add(_profile_label(p).append(f"  ({ctx.file.name})", style="dim"))
+            count += 1 + len(kubes)
     for lan in config.lans:
         away = is_away(lan, where.lan_id)
         branch = root

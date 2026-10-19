@@ -10,6 +10,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from xml_gen_iterm2.kube import KubeContext, KubeDiscovery
 from xml_gen_iterm2.model import (
     DEFAULT_PORT,
     Config,
@@ -19,6 +20,7 @@ from xml_gen_iterm2.model import (
     Hotkey,
     Kind,
     Lan,
+    Local,
     OciConsole,
     Profile,
     Serial,
@@ -243,8 +245,17 @@ def walk_hosts(config: Config, current: str | None = None) -> Iterator[tuple[Hos
         yield from children(lan.children, is_away(lan, current))
 
 
-def render(config: Config, current: str | None = None) -> list[Profile]:
-    """`current`: id of the LAN we're in (None = away from all of them)."""
+def local_profiles(loc: Local, contexts: tuple[KubeContext, ...] = ()) -> list[Profile]:
+    """The plain local shell, then one profile per discovered kube context (pinned via KUBECONFIG overlay)."""
+    tags = tuple(dict.fromkeys((*loc.tags, "k8s")))
+    return [
+        Profile(loc.name, "", loc.tags, Kind.LOCAL, hotkey=loc.hotkey),
+        *(Profile(f"{loc.name} k8s context {c.display}", c.command, tags, Kind.KUBE, badge=c.name) for c in contexts),
+    ]
+
+
+def render(config: Config, current: str | None = None, kube: KubeDiscovery | None = None) -> list[Profile]:
+    """`current`: id of the LAN we're in (None = away from all of them). `kube`: discovered contexts per <local>."""
     d = config.defaults
     hyps = index_hosts(config, current)
     profiles = [
@@ -252,7 +263,7 @@ def render(config: Config, current: str | None = None) -> list[Profile]:
         for host, chain, away in walk_hosts(config, current)
         for p in host_profiles(host, chain, d, away=away, hypervisors=hyps)
     ]
-    profiles += [Profile(loc.name, "", loc.tags, Kind.LOCAL, hotkey=loc.hotkey) for loc in config.locals]
+    profiles += [p for loc in config.locals for p in local_profiles(loc, (kube or {}).get(loc.name, ()))]
     if dupes := sorted(name for name, n in Counter(p.name for p in profiles).items() if n > 1):
         raise ConfigError(f"duplicate profile name(s): {', '.join(map(repr, dupes))}")
     by_key: dict[tuple[int, int], Profile] = {}
@@ -301,7 +312,7 @@ def _profile_json(p: Profile) -> dict[str, Any]:
     if p.kind is Kind.LOCAL:  # plain login shell
         out |= {"Custom Command": "No", "Tags": list(p.tags)}
     else:
-        out |= {"Custom Command": "Yes", "Badge Text": p.name, "Tags": list(p.tags), "Command": p.command}
+        out |= {"Custom Command": "Yes", "Badge Text": p.badge or p.name, "Tags": list(p.tags), "Command": p.command}
     if p.kind in {Kind.SERIAL, Kind.VIRSH}:  # quitting the console means "done"; don't restart like the parent
         out["Close Sessions On End"] = _SESSION_END_CLOSE
     if p.hotkey is not None:
