@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 import shlex
 
@@ -166,3 +167,10 @@ def test_away_from_everything() -> None:
 def test_lan_without_subnets_is_never_away() -> None:
     cfg = parse_bytes(f'<profiles>{OPTS}<lan id="cloud"><host name="vps" ip="203.0.113.1"/></lan></profiles>'.encode())
     assert not render(cfg, None)[0].away
+
+
+def test_serial_profiles_close_on_end() -> None:
+    profiles = list(_render('<host name="h" ip="1.1.1.1"><serial dev="/dev/x" baud="9600" name="b"/></host>').values())
+    by_name = {p["Name"]: p for p in json.loads(to_json(profiles))["Profiles"]}
+    assert by_name["b serial via h"]["Close Sessions On End"] == 1
+    assert "Close Sessions On End" not in by_name["h"]

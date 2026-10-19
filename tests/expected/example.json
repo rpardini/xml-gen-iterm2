@@ -71,7 +71,8 @@
                 "Home/bench",
                 "serial"
             ],
-            "Command": "ssh -o GlobalKnownHostsFile=/dev/null -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no -A -X -Y -t root@192.0.2.19 picocom -b 115200 /dev/serial/by-id/usb-FTDI_FT232R_USB_UART_A10K1234-if00-port0"
+            "Command": "ssh -o GlobalKnownHostsFile=/dev/null -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no -A -X -Y -t root@192.0.2.19 picocom -b 115200 /dev/serial/by-id/usb-FTDI_FT232R_USB_UART_A10K1234-if00-port0",
+            "Close Sessions On End": 1
         },
         {
             "Name": "NanoPC T6 serial via Laptop",
@@ -82,7 +83,8 @@
                 "Home/bench",
                 "serial"
             ],
-            "Command": "ssh -o GlobalKnownHostsFile=/dev/null -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no -A -X -Y -t root@192.0.2.19 picocom -b 1500000 --imap lfcrlf /dev/ttyUSB1"
+            "Command": "ssh -o GlobalKnownHostsFile=/dev/null -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no -A -X -Y -t root@192.0.2.19 picocom -b 1500000 --imap lfcrlf /dev/ttyUSB1",
+            "Close Sessions On End": 1
         },
         {
             "Name": "RPi4",

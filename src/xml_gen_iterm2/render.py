@@ -191,18 +191,24 @@ def render(config: Config, current: str | None = None) -> list[Profile]:
     return profiles
 
 
-def to_json(profiles: list[Profile]) -> str:
-    doc: dict[str, Any] = {
-        "Profiles": [
-            {
-                "Name": p.name,
-                "Guid": p.guid,
-                "Custom Command": "Yes",
-                "Badge Text": p.name,
-                "Tags": list(p.tags),
-                "Command": p.command,
-            }
-            for p in profiles
-        ]
+# iTerm2's iTermSessionEndAction (ITAddressBookMgr.h): 0 = no action, 1 = close, 2 = restart
+_SESSION_END_CLOSE = 1
+
+
+def _profile_json(p: Profile) -> dict[str, Any]:
+    out: dict[str, Any] = {
+        "Name": p.name,
+        "Guid": p.guid,
+        "Custom Command": "Yes",
+        "Badge Text": p.name,
+        "Tags": list(p.tags),
+        "Command": p.command,
     }
+    if p.kind is Kind.SERIAL:  # quitting picocom means "done", don't reconnect even if the parent profile restarts
+        out["Close Sessions On End"] = _SESSION_END_CLOSE
+    return out
+
+
+def to_json(profiles: list[Profile]) -> str:
+    doc: dict[str, Any] = {"Profiles": [_profile_json(p) for p in profiles]}
     return json.dumps(doc, indent=4, ensure_ascii=False) + "\n"
