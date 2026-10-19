@@ -1,0 +1,294 @@
+"""XML -> model: validation and inheritance resolution."""
+
+from __future__ import annotations
+
+import re
+from dataclasses import dataclass, field
+from pathlib import Path
+from xml.parsers import expat
+
+from xml_gen_iterm2.model import (
+    DEFAULT_PORT,
+    Config,
+    Defaults,
+    Group,
+    Host,
+    Lan,
+    OciConsole,
+    Serial,
+    SshEntry,
+    oci_connection_ok,
+    oci_extract,
+    oci_instance_ok,
+)
+
+_MAC_RE = re.compile(r"[0-9A-Fa-f]{2}(:[0-9A-Fa-f]{2}){5}")
+
+_HOST_ATTRS = frozenset({"name", "ip", "tailnet", "user", "users", "port", "tags", "mac", "ipv6", "note"})
+_ATTRS: dict[str, frozenset[str]] = {
+    "profiles": frozenset(),
+    "defaults": frozenset({"user", "ssh-opts", "ssh-auth-sock", "wol-cmd"}),
+    "lan": frozenset({"id"}),
+    "group": frozenset({"name", "user", "users", "port", "tags"}),
+    "host": _HOST_ATTRS,
+    "ssh": frozenset({"name", "user", "port"}),
+    "serial": frozenset({"dev", "baud", "user", "args", "name"}),
+    "oci-console": frozenset({"connection", "instance", "paste", "name"}),
+}
+
+
+class ConfigError(Exception):
+    """A problem in the user's XML; message is meant to be shown as-is."""
+
+
+@dataclass
+class _Node:
+    tag: str
+    attrs: dict[str, str]
+    line: int
+    children: list[_Node] = field(default_factory=list)
+
+    def where(self) -> str:
+        label = self.attrs.get("name") or self.attrs.get("id") or self.attrs.get("dev")
+        return f"<{self.tag}{f' {label!r}' if label else ''}> (line {self.line})"
+
+    def fail(self, msg: str) -> ConfigError:
+        return ConfigError(f"{self.where()}: {msg}")
+
+
+@dataclass(frozen=True)
+class _Ctx:
+    """What groups hand down to their children."""
+
+    path: tuple[str, ...]
+    users: tuple[str, ...]
+    port: int
+    tags: tuple[str, ...]
+
+
+def _read_tree(data: bytes) -> _Node:
+    parser = expat.ParserCreate()
+    stack: list[_Node] = []
+    root: list[_Node] = []
+
+    def start(tag: str, attrs: dict[str, str]) -> None:
+        node = _Node(tag, attrs, parser.CurrentLineNumber)
+        (stack[-1].children if stack else root).append(node)
+        stack.append(node)
+
+    def end(_tag: str) -> None:
+        stack.pop()
+
+    def text(data: str) -> None:
+        if data.strip():
+            where = stack[-1].where() if stack else "document"
+            raise ConfigError(f"{where}: unexpected text {data.strip()!r} (line {parser.CurrentLineNumber})")
+
+    parser.StartElementHandler = start
+    parser.EndElementHandler = end
+    parser.CharacterDataHandler = text
+    try:
+        parser.Parse(data, True)
+    except expat.ExpatError as e:
+        raise ConfigError(f"XML syntax error: {e}") from e
+    return root[0]
+
+
+def _check(node: _Node, allowed_children: frozenset[str] = frozenset()) -> None:
+    allowed = _ATTRS[node.tag]
+    if unknown := sorted(set(node.attrs) - allowed):
+        raise node.fail(f"unknown attribute(s) {', '.join(unknown)}; allowed: {', '.join(sorted(allowed)) or 'none'}")
+    for child in node.children:
+        if child.tag not in allowed_children:
+            raise child.fail(f"not allowed inside <{node.tag}>; allowed: {', '.join(sorted(allowed_children))}")
+
+
+def _required(node: _Node, attr: str) -> str:
+    value = node.attrs.get(attr, "").strip()
+    if not value:
+        raise node.fail(f"missing required attribute {attr!r}")
+    return value
+
+
+def _int(node: _Node, attr: str, lo: int, hi: int) -> int | None:
+    if attr not in node.attrs:
+        return None
+    raw = node.attrs[attr]
+    try:
+        value = int(raw)
+    except ValueError:
+        raise node.fail(f"{attr}={raw!r} is not an integer") from None
+    if not lo <= value <= hi:
+        raise node.fail(f"{attr}={value} out of range {lo}..{hi}")
+    return value
+
+
+def _users(node: _Node) -> tuple[str, ...] | None:
+    if "user" in node.attrs and "users" in node.attrs:
+        raise node.fail("use either 'user' or 'users', not both")
+    raw = node.attrs.get("user") or node.attrs.get("users")
+    if raw is None:
+        return None
+    users = tuple(raw.split())
+    if not users:
+        raise node.fail("empty user list")
+    return users
+
+
+def _ctx_for(node: _Node, ctx: _Ctx) -> _Ctx:
+    """Apply a group's/host's inheritable attributes on top of the inherited context."""
+    path = (*ctx.path, _required(node, "name")) if node.tag == "group" else ctx.path
+    return _Ctx(
+        path=path,
+        users=_users(node) or ctx.users,
+        port=_int(node, "port", 1, 65535) or ctx.port,
+        tags=(*ctx.tags, *node.attrs.get("tags", "").split()),
+    )
+
+
+def _dedupe(items: tuple[str, ...]) -> tuple[str, ...]:
+    return tuple(dict.fromkeys(items))
+
+
+def _parse_ssh(node: _Node, host_name: str, ctx: _Ctx) -> SshEntry:
+    _check(node)
+    user = node.attrs.get("user", "").strip() or ctx.users[0]
+    port = _int(node, "port", 1, 65535) or ctx.port
+    default_name = f"{host_name} {user}" + (f" :{port}" if port != DEFAULT_PORT else "")
+    return SshEntry(user=user, port=port, name=node.attrs.get("name", "").strip() or default_name)
+
+
+def _parse_oci(node: _Node) -> OciConsole:
+    _check(node)
+    paste = node.attrs.get("paste")
+    if paste is not None:
+        if "connection" in node.attrs or "instance" in node.attrs:
+            raise node.fail("use either 'paste' or 'connection'+'instance', not both")
+        extracted = oci_extract(paste)
+        if extracted is None:
+            raise node.fail("could not find console-connection and instance OCIDs in 'paste'")
+        connection, instance = extracted
+    else:
+        connection, instance = _required(node, "connection"), _required(node, "instance")
+    if not oci_connection_ok(connection):
+        raise node.fail(f"bad console connection OCID {connection!r}")
+    if not oci_instance_ok(instance):
+        raise node.fail(f"bad instance OCID {instance!r}")
+    return OciConsole(connection=connection, instance=instance, name=node.attrs.get("name", "").strip() or None)
+
+
+def _parse_serial(node: _Node, ctx: _Ctx) -> Serial:
+    _check(node, frozenset({"host"}))
+    if len(node.children) > 1:
+        raise node.fail("can wrap at most one <host> (the board on the other end of the cable)")
+    baud = _int(node, "baud", 50, 20_000_000)
+    if baud is None:
+        raise node.fail("missing required attribute 'baud'")
+    target = _parse_host(node.children[0], ctx, leaf=True) if node.children else None
+    name = node.attrs.get("name", "").strip() or None
+    if name is None and target is None:
+        raise node.fail("needs either a 'name' or a nested <host> for the target board")
+    return Serial(
+        dev=_required(node, "dev"),
+        baud=baud,
+        user=node.attrs.get("user", "").strip() or None,
+        args=node.attrs.get("args", "").strip() or None,
+        name=name,
+        target=target,
+    )
+
+
+def _parse_host(node: _Node, ctx: _Ctx, *, leaf: bool = False) -> Host:
+    """`ctx` is the enclosing group's context; nested hosts get that same context, not the parent host's."""
+    _check(node, frozenset({"ssh"}) if leaf else frozenset({"ssh", "serial", "oci-console", "host"}))
+    name = _required(node, "name")
+    own = _ctx_for(node, ctx)
+    ip = node.attrs.get("ip", "").strip() or None
+    tailnet = node.attrs.get("tailnet", "").strip() or None
+    if ip is None and tailnet is None:
+        raise node.fail("needs 'ip' and/or 'tailnet'")
+    mac = node.attrs.get("mac", "").strip() or None
+    if mac is not None and not _MAC_RE.fullmatch(mac):
+        raise node.fail(f"bad mac address {mac!r}")
+
+    tags = _dedupe(("/".join(own.path),) if own.path else ()) + _dedupe(own.tags)
+    by_tag: dict[str, list[_Node]] = {}
+    for child in node.children:
+        by_tag.setdefault(child.tag, []).append(child)
+
+    return Host(
+        name=name,
+        users=own.users,
+        port=own.port,
+        tags=_dedupe(tags),
+        ip=ip,
+        tailnet=tailnet,
+        mac=mac,
+        ipv6=node.attrs.get("ipv6", "").strip() or None,
+        note=node.attrs.get("note", "").strip() or None,
+        ssh=tuple(_parse_ssh(c, name, own) for c in by_tag.get("ssh", [])),
+        serials=tuple(_parse_serial(c, ctx) for c in by_tag.get("serial", [])),
+        consoles=tuple(_parse_oci(c) for c in by_tag.get("oci-console", [])),
+        hosts=tuple(_parse_host(c, ctx) for c in by_tag.get("host", [])),
+    )
+
+
+def _parse_children(node: _Node, ctx: _Ctx) -> tuple[Group | Host, ...]:
+    out: list[Group | Host] = []
+    for child in node.children:
+        if child.tag == "group":
+            _check(child, frozenset({"group", "host"}))
+            sub = _ctx_for(child, ctx)
+            out.append(Group(name=sub.path[-1], path="/".join(sub.path), children=_parse_children(child, sub)))
+        else:
+            out.append(_parse_host(child, ctx))
+    return tuple(out)
+
+
+def parse_bytes(data: bytes) -> Config:
+    root = _read_tree(data)
+    if root.tag != "profiles":
+        raise root.fail("root element must be <profiles>")
+    _check(root, frozenset({"defaults", "lan", "group", "host"}))
+
+    defaults_nodes = [c for c in root.children if c.tag == "defaults"]
+    if len(defaults_nodes) > 1:
+        raise defaults_nodes[1].fail("only one <defaults> allowed")
+    defaults = Defaults()
+    if defaults_nodes:
+        d = defaults_nodes[0]
+        _check(d)
+        defaults = Defaults(
+            user=d.attrs.get("user", defaults.user).strip() or defaults.user,
+            ssh_opts=d.attrs.get("ssh-opts", defaults.ssh_opts).strip(),
+            ssh_auth_sock=d.attrs.get("ssh-auth-sock", defaults.ssh_auth_sock).strip(),
+            wol_cmd=d.attrs.get("wol-cmd", defaults.wol_cmd).strip() or defaults.wol_cmd,
+        )
+
+    base = _Ctx(path=(), users=(defaults.user,), port=DEFAULT_PORT, tags=())
+    lans: list[Lan] = []
+    loose: list[_Node] = []
+    seen_ids: set[str] = set()
+
+    def flush_loose() -> None:
+        if loose:
+            lans.append(Lan(id=None, children=_parse_children(_Node("profiles", {}, 0, list(loose)), base)))
+            loose.clear()
+
+    for child in root.children:
+        if child.tag == "lan":
+            flush_loose()
+            _check(child, frozenset({"group", "host"}))
+            lan_id = _required(child, "id")
+            if lan_id in seen_ids:
+                raise child.fail(f"duplicate lan id {lan_id!r}")
+            seen_ids.add(lan_id)
+            lans.append(Lan(id=lan_id, children=_parse_children(child, base)))
+        elif child.tag != "defaults":
+            loose.append(child)
+    flush_loose()
+    return Config(defaults=defaults, lans=tuple(lans))
+
+
+def parse_file(path: Path) -> Config:
+    return parse_bytes(path.read_bytes())

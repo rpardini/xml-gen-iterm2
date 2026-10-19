@@ -1,0 +1,56 @@
+[project]
+name = "xml-gen-iterm2"
+version = "0.1.0"
+description = "Generate iTerm2 Dynamic Profiles (ssh, serial/picocom, OCI console, WOL) from a compact XML file"
+readme = "README.md"
+authors = [{ name = "Ricardo Pardini", email = "ricardo@pardini.net" }]
+requires-python = ">=3.13"
+dependencies = [
+    "click>=8.1",
+    "rich>=13.7",
+]
+
+[project.scripts]
+xml-gen-iterm2 = "xml_gen_iterm2.cli:main"
+
+[build-system]
+requires = ["uv_build>=0.13,<0.14"]
+build-backend = "uv_build"
+
+[dependency-groups]
+dev = [
+    "mypy>=1.11",
+    "pytest>=8.3",
+    "ruff>=0.6",
+]
+
+[tool.ruff]
+line-length = 120
+target-version = "py313"
+
+[tool.ruff.lint]
+select = [
+    "E", "W", "F", "I", "N", "UP", "B", "A", "C4", "SIM", "RET", "PTH", "PIE", "PL", "RUF", "TRY", "PERF", "FURB",
+]
+ignore = [
+    "PLR0913", # too many arguments
+    "PLR0917", # too many positional arguments (click commands)
+    "PLR2004", # magic values
+    "TRY003",  # long messages in exception constructors
+]
+
+[tool.ruff.lint.isort]
+known-local-folder = ["conftest"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["PLR2004", "S101"]
+
+[tool.ruff.format]
+quote-style = "double"
+
+[tool.mypy]
+strict = true
+files = ["src", "tests"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

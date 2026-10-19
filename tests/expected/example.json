@@ -1,0 +1,204 @@
+{
+    "Profiles": [
+        {
+            "Name": "Board A",
+            "Guid": "cbac1cdc-7c02-5eaa-8ab8-cf8ae26cce03",
+            "Custom Command": "Yes",
+            "Badge Text": "Board A",
+            "Tags": [
+                "Home/bench"
+            ],
+            "Command": "ssh -o GlobalKnownHostsFile=/dev/null -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no -A -X -Y root@192.0.2.10"
+        },
+        {
+            "Name": "Laptop root",
+            "Guid": "009d67f9-cf26-5952-a14b-b4f46178525e",
+            "Custom Command": "Yes",
+            "Badge Text": "Laptop root",
+            "Tags": [
+                "Home/bench"
+            ],
+            "Command": "ssh -o GlobalKnownHostsFile=/dev/null -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no -A -X -Y root@192.0.2.19"
+        },
+        {
+            "Name": "Laptop alice",
+            "Guid": "9b90d97e-6b1d-5513-ba5a-4b83f3bbdd78",
+            "Custom Command": "Yes",
+            "Badge Text": "Laptop alice",
+            "Tags": [
+                "Home/bench"
+            ],
+            "Command": "ssh -o GlobalKnownHostsFile=/dev/null -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no -A -X -Y alice@192.0.2.19"
+        },
+        {
+            "Name": "Laptop runner",
+            "Guid": "c07418d5-d909-51dd-9e3e-cee91ce67424",
+            "Custom Command": "Yes",
+            "Badge Text": "Laptop runner",
+            "Tags": [
+                "Home/bench"
+            ],
+            "Command": "ssh -o GlobalKnownHostsFile=/dev/null -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no -A -X -Y -p 2222 runner@192.0.2.19"
+        },
+        {
+            "Name": "Laptop root WOL",
+            "Guid": "41f31808-9f9d-527c-9818-d32b6e98bf71",
+            "Custom Command": "Yes",
+            "Badge Text": "Laptop root WOL",
+            "Tags": [
+                "Home/bench",
+                "wol"
+            ],
+            "Command": "bash -c \"wakeonlan 00:11:22:33:44:55; until nc -z 192.0.2.19 22; do sleep 2; done; ssh -o GlobalKnownHostsFile=/dev/null -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no -A -X -Y root@192.0.2.19\""
+        },
+        {
+            "Name": "Laptop alice WOL",
+            "Guid": "999e9edc-92fe-535c-b2dd-d575e56241d4",
+            "Custom Command": "Yes",
+            "Badge Text": "Laptop alice WOL",
+            "Tags": [
+                "Home/bench",
+                "wol"
+            ],
+            "Command": "bash -c \"wakeonlan 00:11:22:33:44:55; until nc -z 192.0.2.19 22; do sleep 2; done; ssh -o GlobalKnownHostsFile=/dev/null -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no -A -X -Y alice@192.0.2.19\""
+        },
+        {
+            "Name": "RPi4 serial via Laptop",
+            "Guid": "2961e148-c48a-56f9-bd41-5022a4e1080c",
+            "Custom Command": "Yes",
+            "Badge Text": "RPi4 serial via Laptop",
+            "Tags": [
+                "Home/bench",
+                "serial"
+            ],
+            "Command": "ssh -o GlobalKnownHostsFile=/dev/null -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no -A -X -Y -t root@192.0.2.19 picocom -b 115200 /dev/serial/by-id/usb-FTDI_FT232R_USB_UART_A10K1234-if00-port0"
+        },
+        {
+            "Name": "NanoPC T6 serial via Laptop",
+            "Guid": "1104f381-4874-5ca3-857b-ab942303b7dd",
+            "Custom Command": "Yes",
+            "Badge Text": "NanoPC T6 serial via Laptop",
+            "Tags": [
+                "Home/bench",
+                "serial"
+            ],
+            "Command": "ssh -o GlobalKnownHostsFile=/dev/null -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no -A -X -Y -t root@192.0.2.19 picocom -b 1500000 --imap lfcrlf /dev/ttyUSB1"
+        },
+        {
+            "Name": "RPi4",
+            "Guid": "2c623998-c9c4-573d-bd60-8b0b6e51b86a",
+            "Custom Command": "Yes",
+            "Badge Text": "RPi4",
+            "Tags": [
+                "Home/bench",
+                "vmtest"
+            ],
+            "Command": "ssh -o GlobalKnownHostsFile=/dev/null -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no -A -X -Y root@192.0.2.20"
+        },
+        {
+            "Name": "VM in Laptop",
+            "Guid": "526fca0f-897d-592a-928e-fd88f37f8314",
+            "Custom Command": "Yes",
+            "Badge Text": "VM in Laptop",
+            "Tags": [
+                "Home/bench"
+            ],
+            "Command": "ssh -o GlobalKnownHostsFile=/dev/null -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no -A -X -Y -o ProxyCommand='ssh -o GlobalKnownHostsFile=/dev/null -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no -A -X -Y -W %h:%p root@192.0.2.19' root@10.0.0.5"
+        },
+        {
+            "Name": "Container in VM",
+            "Guid": "c91b1b95-4567-52a9-8e74-44f4e2579aa1",
+            "Custom Command": "Yes",
+            "Badge Text": "Container in VM",
+            "Tags": [
+                "Home/bench"
+            ],
+            "Command": "ssh -o GlobalKnownHostsFile=/dev/null -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no -A -X -Y -o ProxyCommand='ssh -o GlobalKnownHostsFile=/dev/null -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no -A -X -Y -o ProxyCommand='\"'\"'ssh -o GlobalKnownHostsFile=/dev/null -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no -A -X -Y -W %%h:%%p root@192.0.2.19'\"'\"' -W %h:%p root@10.0.0.5' app@10.0.1.7"
+        },
+        {
+            "Name": "Desktop",
+            "Guid": "26361fff-3751-5559-8352-c91771decafc",
+            "Custom Command": "Yes",
+            "Badge Text": "Desktop",
+            "Tags": [
+                "Home/work",
+                "workstation"
+            ],
+            "Command": "ssh -o GlobalKnownHostsFile=/dev/null -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no -A -X -Y alice@192.0.2.30"
+        },
+        {
+            "Name": "Desktop tailnet",
+            "Guid": "3e67b157-6755-5370-b897-d78ee831cc75",
+            "Custom Command": "Yes",
+            "Badge Text": "Desktop tailnet",
+            "Tags": [
+                "Home/work",
+                "workstation",
+                "tailnet"
+            ],
+            "Command": "ssh -o GlobalKnownHostsFile=/dev/null -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no -A -X -Y alice@100.64.0.30"
+        },
+        {
+            "Name": "Desktop runner tailnet",
+            "Guid": "2d2360cf-4b7c-55f2-8a11-b6a25936912f",
+            "Custom Command": "Yes",
+            "Badge Text": "Desktop runner tailnet",
+            "Tags": [
+                "Home/work",
+                "workstation",
+                "tailnet"
+            ],
+            "Command": "ssh -o GlobalKnownHostsFile=/dev/null -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no -A -X -Y -p 22222 root@100.64.0.30"
+        },
+        {
+            "Name": "OCI arm64 one",
+            "Guid": "07698ae3-ccbf-5c94-b31a-d6e6364c5f81",
+            "Custom Command": "Yes",
+            "Badge Text": "OCI arm64 one",
+            "Tags": [
+                "Oracle OCI/Mine"
+            ],
+            "Command": "ssh -o GlobalKnownHostsFile=/dev/null -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no -A -X -Y root@198.51.100.7"
+        },
+        {
+            "Name": "OCI arm64 one CONSOLE",
+            "Guid": "6d450adf-db14-51ef-a45c-9eaf96261cb4",
+            "Custom Command": "Yes",
+            "Badge Text": "OCI arm64 one CONSOLE",
+            "Tags": [
+                "Oracle OCI/Mine",
+                "ociConsole"
+            ],
+            "Command": "bash -c \"export SSH_AUTH_SOCK=/home/test/.gnupg/S.gpg-agent.ssh; ssh -oHostKeyAlgorithms=+ssh-rsa -oPubkeyAcceptedAlgorithms=+ssh-rsa -o ProxyCommand='ssh -W %h:%p -p 443 -oHostKeyAlgorithms=+ssh-rsa -oPubkeyAcceptedAlgorithms=+ssh-rsa ocid1.instanceconsoleconnection.oc1.eu-amsterdam-1.aaaaconnection1@instance-console.eu-amsterdam-1.oci.oraclecloud.com' ocid1.instance.oc1.eu-amsterdam-1.aaaainstance1\""
+        },
+        {
+            "Name": "OCI arm64 two",
+            "Guid": "25332a44-2f51-5758-a55f-ebc2e77aefab",
+            "Custom Command": "Yes",
+            "Badge Text": "OCI arm64 two",
+            "Tags": [
+                "Oracle OCI/Friend"
+            ],
+            "Command": "ssh -o GlobalKnownHostsFile=/dev/null -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no -A -X -Y root@198.51.100.8"
+        },
+        {
+            "Name": "OCI arm64 two CONSOLE",
+            "Guid": "ad8f1bf0-23f1-52a5-9b82-6c92d9256e78",
+            "Custom Command": "Yes",
+            "Badge Text": "OCI arm64 two CONSOLE",
+            "Tags": [
+                "Oracle OCI/Friend",
+                "ociConsole"
+            ],
+            "Command": "bash -c \"export SSH_AUTH_SOCK=/home/test/.gnupg/S.gpg-agent.ssh; ssh -oHostKeyAlgorithms=+ssh-rsa -oPubkeyAcceptedAlgorithms=+ssh-rsa -o ProxyCommand='ssh -W %h:%p -p 443 -oHostKeyAlgorithms=+ssh-rsa -oPubkeyAcceptedAlgorithms=+ssh-rsa ocid1.instanceconsoleconnection.oc1.sa-vinhedo-1.bbbbconnection2@instance-console.sa-vinhedo-1.oci.oraclecloud.com' ocid1.instance.oc1.sa-vinhedo-1.bbbbinstance2\""
+        },
+        {
+            "Name": "Loose VPS",
+            "Guid": "ba91bff1-81af-59e7-a7d2-96ea4c9d3906",
+            "Custom Command": "Yes",
+            "Badge Text": "Loose VPS",
+            "Tags": [],
+            "Command": "ssh -o GlobalKnownHostsFile=/dev/null -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no -A -X -Y -p 2200 root@203.0.113.5"
+        }
+    ]
+}

@@ -1,0 +1,59 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Example config for xml-gen-iterm2; exercises every feature. All addresses/OCIDs are fake. -->
+<profiles>
+    <defaults user="root" ssh-auth-sock="~/.gnupg/S.gpg-agent.ssh"/>
+
+    <lan id="home">
+        <group name="Home">
+            <group name="bench">
+                <!-- simplest case: one profile, ssh root@ip -->
+                <host name="Board A" ip="192.0.2.10"/>
+
+                <!-- several users: one profile per user, user appended to the name; mac adds WOL profiles -->
+                <host name="Laptop" ip="192.0.2.19" mac="00:11:22:33:44:55" users="root alice">
+                    <!-- extra explicit ssh profile -->
+                    <ssh name="Laptop runner" user="runner" port="2222"/>
+
+                    <!-- console of another board, cabled to this host's USB-serial adapter -->
+                    <serial dev="/dev/serial/by-id/usb-FTDI_FT232R_USB_UART_A10K1234-if00-port0" baud="115200">
+                        <host name="RPi4" ip="192.0.2.20" tags="vmtest"/>
+                    </serial>
+                    <!-- board with no network at all -->
+                    <serial dev="/dev/ttyUSB1" baud="1500000" name="NanoPC T6" args="--imap lfcrlf"/>
+
+                    <!-- reached using the Laptop as a bastion -->
+                    <host name="VM in Laptop" ip="10.0.0.5">
+                        <host name="Container in VM" ip="10.0.1.7" user="app"/>
+                    </host>
+                </host>
+            </group>
+
+            <group name="work" user="alice" tags="workstation">
+                <!-- LAN + tailnet in one go -->
+                <host name="Desktop" ip="192.0.2.30" tailnet="100.64.0.30"/>
+                <!-- tailnet only, non-default port -->
+                <host name="Desktop runner" tailnet="100.64.0.30" user="root" port="22222"/>
+            </group>
+        </group>
+    </lan>
+
+    <lan id="cloud">
+        <group name="Oracle OCI">
+            <group name="Mine">
+                <host name="OCI arm64 one" ip="198.51.100.7" note="free tier">
+                    <oci-console connection="ocid1.instanceconsoleconnection.oc1.eu-amsterdam-1.aaaaconnection1"
+                                 instance="ocid1.instance.oc1.eu-amsterdam-1.aaaainstance1"/>
+                </host>
+            </group>
+            <group name="Friend">
+                <host name="OCI arm64 two" ip="198.51.100.8" ipv6="2001:db8::8">
+                    <!-- just paste what OCI gives you; the OCIDs are extracted -->
+                    <oci-console paste="ssh -o ProxyCommand='ssh -W %h:%p -p 443 ocid1.instanceconsoleconnection.oc1.sa-vinhedo-1.bbbbconnection2@instance-console.sa-vinhedo-1.oci.oraclecloud.com' ocid1.instance.oc1.sa-vinhedo-1.bbbbinstance2"/>
+                </host>
+            </group>
+        </group>
+    </lan>
+
+    <!-- outside any lan is fine too -->
+    <host name="Loose VPS" ip="203.0.113.5" port="2200"/>
+</profiles>

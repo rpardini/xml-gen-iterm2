@@ -1,0 +1,107 @@
+from __future__ import annotations
+
+import os
+import shlex
+
+import pytest
+
+from xml_gen_iterm2.model import Kind, Profile
+from xml_gen_iterm2.parse import ConfigError, parse_bytes, parse_file
+from xml_gen_iterm2.render import bash_c, render, to_json
+
+from conftest import EXAMPLE, EXPECTED
+
+OPTS = '<defaults ssh-opts="-q"/>'
+
+
+def _render(body: str) -> dict[str, Profile]:
+    return {p.name: p for p in render(parse_bytes(f"<profiles>{OPTS}{body}</profiles>".encode()))}
+
+
+def test_golden_example() -> None:
+    generated = to_json(render(parse_file(EXAMPLE)))
+    if os.environ.get("UPDATE_GOLDEN"):
+        EXPECTED.write_text(generated, encoding="utf-8")
+    assert generated == EXPECTED.read_text(encoding="utf-8")
+
+
+def test_users_and_tailnet_multiply() -> None:
+    p = _render('<host name="h" ip="10.0.0.1" tailnet="100.64.0.1" users="a b"/>')
+    assert sorted(p) == ["h a", "h a tailnet", "h b", "h b tailnet"]
+    assert p["h b tailnet"].command == "ssh -q b@100.64.0.1"
+    assert p["h b tailnet"].tags == ("tailnet",)
+
+
+def test_wol_only_for_direct_lan_hosts() -> None:
+    p = _render(
+        '<host name="h" ip="10.0.0.1" mac="00:11:22:33:44:55" port="2222">'
+        '<host name="inner" ip="10.0.0.2" mac="00:11:22:33:44:66"/></host>'
+        '<host name="t" tailnet="100.64.0.1" mac="00:11:22:33:44:77"/>'
+    )
+    assert p["h WOL"].kind is Kind.WOL
+    assert p["h WOL"].command == (
+        'bash -c "wakeonlan 00:11:22:33:44:55; until nc -z 10.0.0.1 2222; do sleep 2; done; '
+        'ssh -q -p 2222 root@10.0.0.1"'
+    )
+    assert "inner WOL" not in p
+    assert "t tailnet WOL" not in p
+    assert "t WOL" not in p
+
+
+def test_bastion_chain_escapes_tokens() -> None:
+    p = _render(
+        '<host name="a" ip="1.1.1.1" port="2"><host name="b" ip="2.2.2.2"><host name="c" ip="3.3.3.3"/></host></host>'
+    )
+    assert p["b"].command == "ssh -q -o ProxyCommand='ssh -q -p 2 -W %h:%p root@1.1.1.1' root@2.2.2.2"
+    args = shlex.split(p["c"].command)
+    outer = args[args.index("-o") + 1].removeprefix("ProxyCommand=")
+    assert outer.endswith("-W %h:%p root@2.2.2.2")
+    assert "-W %%h:%%p root@1.1.1.1" in outer
+
+
+def test_serial_target_uses_adapters_chain() -> None:
+    p = _render(
+        '<host name="bastion" ip="1.1.1.1"><host name="x13s" ip="2.2.2.2" users="pi root">'
+        '<serial dev="/dev/serial/by-id/usb with space" baud="115200" args="--quiet">'
+        '<host name="rpi" ip="3.3.3.3"/></serial></host></host>'
+    )
+    proxy = "-o ProxyCommand='ssh -q -W %h:%p root@1.1.1.1'"
+    assert p["rpi serial via x13s"].command == (
+        f"ssh -q {proxy} -t pi@2.2.2.2 picocom -b 115200 --quiet '/dev/serial/by-id/usb with space'"
+    )
+    assert p["rpi serial via x13s"].tags == ("serial",)
+    assert p["rpi"].command == f"ssh -q {proxy} root@3.3.3.3"
+
+
+def test_serial_user_override_and_name() -> None:
+    p = _render('<host name="h" ip="1.1.1.1"><serial dev="/dev/ttyUSB1" baud="9600" user="me" name="board"/></host>')
+    assert p["board serial via h"].command == "ssh -q -t me@1.1.1.1 picocom -b 9600 /dev/ttyUSB1"
+
+
+def test_oci_without_auth_sock_is_plain_ssh() -> None:
+    p = _render(
+        '<host name="o" ip="1.1.1.1"><oci-console connection="ocid1.instanceconsoleconnection.oc1.r-1.c"'
+        ' instance="ocid1.instance.oc1.r-1.i"/></host>'
+    )
+    cmd = p["o CONSOLE"].command
+    assert cmd.startswith("ssh -oHostKeyAlgorithms=+ssh-rsa")
+    assert "-p 443 -oHostKeyAlgorithms=+ssh-rsa -oPubkeyAcceptedAlgorithms=+ssh-rsa" in cmd
+    assert "c@instance-console.r-1.oci.oraclecloud.com" in cmd
+    assert p["o CONSOLE"].tags == ("ociConsole",)
+
+
+def test_duplicate_names_rejected() -> None:
+    with pytest.raises(ConfigError, match="duplicate profile name"):
+        _render('<host name="h" ip="1.1.1.1"/><host name="h" ip="2.2.2.2"/>')
+
+
+def test_guid_is_stable_uuid_of_name() -> None:
+    a = Profile("x", "c1", (), Kind.SSH)
+    b = Profile("x", "c2", ("t",), Kind.SERIAL)
+    assert a.guid == b.guid
+    assert a.guid != Profile("y", "c1", (), Kind.SSH).guid
+
+
+def test_bash_c_quoting() -> None:
+    assert bash_c("echo hi; ls") == 'bash -c "echo hi; ls"'
+    assert bash_c('echo "$HOME"') == "bash -c 'echo \"$HOME\"'"

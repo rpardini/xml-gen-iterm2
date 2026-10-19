@@ -1,1 +1,9 @@
 xml-gen-iterm2.xml
+iterm2-profiles.xml
+.venv/
+__pycache__/
+*.egg-info/
+.idea/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
