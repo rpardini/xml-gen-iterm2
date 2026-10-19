@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import shlex
 from collections import Counter
-from collections.abc import Iterator
+from collections.abc import Iterator, Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -112,6 +112,10 @@ def _oci_command(console: OciConsole, d: Defaults) -> str:
     return bash_c(f"export SSH_AUTH_SOCK={Path(d.ssh_auth_sock).expanduser()}; {ssh}")
 
 
+# keep the tab open after a failure so the error stays readable (serial/virsh profiles close on end)
+_PAUSE = 'printf "\\nPress Enter to close... "; read -r _'
+
+
 def picocom_script(serial: Serial) -> str:
     """POSIX sh run on the adapter host. picocom locks the port, so a second session would die instantly (and the tab
     closes on end): refuse up front if the device is held, showing by whom, and pause on any picocom failure."""
@@ -120,26 +124,52 @@ def picocom_script(serial: Serial) -> str:
         f"dev={shlex.quote(serial.dev)}; "
         'pids=$(fuser "$dev" 2>/dev/null); '
         'if [ -n "$pids" ]; then echo "$dev is in use by:"; ps -fp $pids 2>/dev/null || echo "PIDs:$pids"; '
-        f"else {picocom} && exit; fi; "
-        'printf "\\nPress Enter to close... "; read -r _'
+        f"else {picocom} && exit; fi; {_PAUSE}"
     )
+
+
+def virsh_script(domain: str) -> str:
+    """POSIX sh run on the hypervisor. virsh fails if another session holds the console or the domain isn't running."""
+    return f'dom={shlex.quote(domain)}; virsh console "$dom" && exit; {_PAUSE}'
+
+
+Located = tuple[Host, Chain, bool]  # host, bastion chain to it, whether its LAN is away
+Hypervisors = Mapping[str, Located]
+
+
+def _remote_tty(on: Located, user: str | None, script: str, d: Defaults) -> tuple[str, bool]:
+    """(`ssh -t ... '<script>'` on host `on`, likely-unreachable-from-here flag)."""
+    host, chain, away = on
+    address, via_tailnet = resolve(host, away=away)
+    if via_tailnet:
+        chain = ()
+    ssh = ssh_command(user or host.user, address, host.port, chain, d, tty=True)
+    return f"{ssh} {shlex.quote(script)}", not via_tailnet and not reachable(chain, away=away)
 
 
 def _serial_profile(adapter: Host, serial: Serial, chain: Chain, d: Defaults, *, away: bool) -> Profile:
-    address, via_tailnet = resolve(adapter, away=away)
-    if via_tailnet:
-        chain = ()
-    ssh = ssh_command(serial.user or adapter.user, address, adapter.port, chain, d, tty=True)
-    return Profile(
-        f"{serial.target_name} serial via {adapter.name}",
-        f"{ssh} {shlex.quote(picocom_script(serial))}",
-        _tags(adapter, "serial"),
-        Kind.SERIAL,
-        away=not via_tailnet and not reachable(chain, away=away),
-    )
+    cmd, dim = _remote_tty((adapter, chain, away), serial.user, picocom_script(serial), d)
+    name = f"{serial.target_name} serial via {adapter.name}"
+    return Profile(name, cmd, _tags(adapter, "serial"), Kind.SERIAL, away=dim)
 
 
-def host_profiles(host: Host, chain: Chain, d: Defaults, *, away: bool = False) -> list[Profile]:
+def _virsh_profile(vm: Host, hypervisors: Hypervisors, d: Defaults) -> Profile:
+    assert vm.hypervisor is not None and vm.virsh_domain is not None
+    if vm.hypervisor not in hypervisors:  # validated at parse time
+        raise ConfigError(f"host {vm.name!r}: unknown hypervisor {vm.hypervisor!r}")
+    hyp = hypervisors[vm.hypervisor]
+    cmd, dim = _remote_tty(hyp, None, virsh_script(vm.virsh_domain), d)
+    return Profile(f"{vm.name} console via {hyp[0].name}", cmd, _tags(vm, "virsh"), Kind.VIRSH, away=dim)
+
+
+def index_hosts(config: Config, current: str | None = None) -> dict[str, Located]:
+    """Hosts with an `id`, located (chain + away) as seen from `current`."""
+    return {host.id: (host, chain, away) for host, chain, away in walk_hosts(config, current) if host.id}
+
+
+def host_profiles(
+    host: Host, chain: Chain, d: Defaults, *, away: bool = False, hypervisors: Hypervisors | None = None
+) -> list[Profile]:
     """Profiles belonging to `host` itself (not to hosts nested in it). `away`: its LAN isn't the current one."""
     profiles: list[Profile] = []
     for base, user, port in _ssh_targets(host):
@@ -164,6 +194,8 @@ def host_profiles(host: Host, chain: Chain, d: Defaults, *, away: bool = False) 
     )
 
     profiles.extend(_serial_profile(host, s, chain, d, away=away) for s in host.serials)
+    if host.virsh_domain:
+        profiles.append(_virsh_profile(host, hypervisors or {}, d))
     return profiles
 
 
@@ -197,8 +229,11 @@ def walk_hosts(config: Config, current: str | None = None) -> Iterator[tuple[Hos
 def render(config: Config, current: str | None = None) -> list[Profile]:
     """`current`: id of the LAN we're in (None = away from all of them)."""
     d = config.defaults
+    hyps = index_hosts(config, current)
     profiles = [
-        p for host, chain, away in walk_hosts(config, current) for p in host_profiles(host, chain, d, away=away)
+        p
+        for host, chain, away in walk_hosts(config, current)
+        for p in host_profiles(host, chain, d, away=away, hypervisors=hyps)
     ]
     if dupes := sorted(name for name, n in Counter(p.name for p in profiles).items() if n > 1):
         raise ConfigError(f"duplicate profile name(s): {', '.join(map(repr, dupes))}")
@@ -218,7 +253,7 @@ def _profile_json(p: Profile) -> dict[str, Any]:
         "Tags": list(p.tags),
         "Command": p.command,
     }
-    if p.kind is Kind.SERIAL:  # quitting picocom means "done", don't reconnect even if the parent profile restarts
+    if p.kind in {Kind.SERIAL, Kind.VIRSH}:  # quitting the console means "done"; don't restart like the parent
         out["Close Sessions On End"] = _SESSION_END_CLOSE
     return out
 

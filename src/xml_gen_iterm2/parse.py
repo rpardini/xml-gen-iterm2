@@ -25,7 +25,10 @@ from xml_gen_iterm2.model import (
 
 _MAC_RE = re.compile(r"[0-9A-Fa-f]{2}(:[0-9A-Fa-f]{2}){5}")
 
-_HOST_ATTRS = frozenset({"name", "ip", "tailnet", "user", "users", "port", "tags", "mac", "wol", "ipv6", "note"})
+_HOST_ATTRS = frozenset(
+    {"name", "ip", "tailnet", "user", "users", "port", "tags", "mac", "wol", "ipv6", "note"}
+    | {"id", "hypervisor", "virsh-domain"}
+)
 _ATTRS: dict[str, frozenset[str]] = {
     "profiles": frozenset(),
     "defaults": frozenset({"user", "ssh-opts", "ssh-auth-sock", "wol-cmd"}),
@@ -223,6 +226,10 @@ def _parse_host(node: _Node, ctx: _Ctx, *, leaf: bool = False) -> Host:
         raise node.fail("wol=\"true\" needs a 'mac'")
     if wol and ip is None:
         raise node.fail("wol=\"true\" needs a LAN 'ip' (magic packets don't cross the tailnet)")
+    hypervisor = node.attrs.get("hypervisor", "").strip() or None
+    virsh_domain = node.attrs.get("virsh-domain", "").strip() or None
+    if (hypervisor is None) != (virsh_domain is None):
+        raise node.fail("'hypervisor' and 'virsh-domain' go together")
 
     tags = _dedupe(("/".join(own.path),) if own.path else ()) + _dedupe(own.tags)
     by_tag: dict[str, list[_Node]] = {}
@@ -238,6 +245,9 @@ def _parse_host(node: _Node, ctx: _Ctx, *, leaf: bool = False) -> Host:
         tailnet=tailnet,
         mac=mac,
         wol=wol,
+        id=node.attrs.get("id", "").strip() or None,
+        hypervisor=hypervisor,
+        virsh_domain=virsh_domain,
         ipv6=node.attrs.get("ipv6", "").strip() or None,
         note=node.attrs.get("note", "").strip() or None,
         ssh=tuple(_parse_ssh(c, name, own) for c in by_tag.get("ssh", [])),
@@ -269,10 +279,39 @@ def _subnets(node: _Node) -> tuple[ipaddress.IPv4Network | ipaddress.IPv6Network
     return tuple(dict.fromkeys(out))
 
 
+def _host_nodes(node: _Node) -> list[_Node]:
+    out = [node] if node.tag == "host" else []
+    for child in node.children:
+        out += _host_nodes(child)
+    return out
+
+
+def _check_refs(root: _Node) -> None:
+    """Host ids are unique across the file; `hypervisor=` must name another host's id."""
+    by_id: dict[str, _Node] = {}
+    hosts = _host_nodes(root)
+    for node in hosts:
+        host_id = node.attrs.get("id", "").strip()
+        if not host_id:
+            continue
+        if host_id in by_id:
+            raise node.fail(f"duplicate host id {host_id!r} (already used at line {by_id[host_id].line})")
+        by_id[host_id] = node
+    for node in hosts:
+        ref = node.attrs.get("hypervisor", "").strip()
+        if not ref:
+            continue
+        if ref not in by_id:
+            raise node.fail(f"hypervisor={ref!r}: no host with that id; known: {', '.join(sorted(by_id)) or 'none'}")
+        if by_id[ref] is node:
+            raise node.fail("a host can't be its own hypervisor")
+
+
 def parse_bytes(data: bytes) -> Config:
     root = _read_tree(data)
     if root.tag != "profiles":
         raise root.fail("root element must be <profiles>")
+    _check_refs(root)
     _check(root, frozenset({"defaults", "lan", "group", "host"}))
 
     defaults_nodes = [c for c in root.children if c.tag == "defaults"]

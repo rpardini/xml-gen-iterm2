@@ -43,7 +43,7 @@ See [`examples/example.xml`](examples/example.xml) for a working example of ever
 | `<defaults>`    | `user` (root), `ssh-opts`, `ssh-auth-sock` (used by OCI consoles), `wol-cmd`        | nothing                                                      |
 | `<lan>`         | `id`, `subnets` (space-separated CIDRs)                                             | nothing itself; drives location-aware routing (below)        |
 | `<group>`       | `name`, `user`/`users`, `port`, `tags`                                              | nested names are joined with `/` into the first tag; the other attributes are inherited |
-| `<host>`        | `name`, `ip` and/or `tailnet`, `user`/`users`, `port`, `tags`, `mac`, `wol`, `ipv6`, `note` | one ssh profile per user × address                           |
+| `<host>`        | `name`, `ip` and/or `tailnet`, `user`/`users`, `port`, `tags`, `mac`, `wol`, `id`, `hypervisor` + `virsh-domain`, `ipv6`, `note` | one ssh profile per user × address                           |
 | `<ssh>`         | `name`, `user`, `port`                                                              | one extra ssh profile per address                            |
 | `<serial>`      | `dev`, `baud`, `user`, `args`, `name`                                               | `<target> serial via <host>`: `ssh -t host` + picocom wrapper |
 | `<oci-console>` | `connection` + `instance`, or `paste` (the raw string from OCI's web console)       | `<host> CONSOLE` (tag `ociConsole`)                          |
@@ -57,9 +57,14 @@ Rules:
   `/opt/homebrew/bin/wakeonlan`.
 - **`<host>` inside `<host>`**: the parent is used as a bastion via `ProxyCommand`, and deeper nesting chains the
   bastions. A nested host inherits its enclosing *group's* users, port and tags, not the parent host's.
+- **libvirt VMs**: put `id="…"` on the hypervisor host, and `hypervisor="<that id>" virsh-domain="<domain>"` on the
+  VM's host. This adds `<vm> console via <hypervisor>`, which runs `virsh console` over `ssh -t` as the hypervisor's
+  first user, reaching it through its own bastions or tailnet (tag `virsh`). The VM's own ssh profiles stay direct.
+  Ids are unique across the file.
 - **Serial sessions** close when picocom quits normally, rather than restarting. picocom locks the port, so the
   wrapper checks for a busy device first (`fuser`), shows who holds it, and waits for Enter. It also waits for Enter
-  if picocom fails, so the error stays visible.
+  if picocom fails, so the error stays visible. virsh consoles behave the same way: they close on Ctrl+], and wait
+  for Enter if the console is already attached elsewhere or the domain isn't running.
 - **`<serial>`**: this is the console of *another* board, cabled to this host's USB-serial adapter. picocom runs on this
   host. The serial node wraps the target board's `<host>`, which gets its own ssh profiles and can't nest further. A
   board without network uses `name=` instead.

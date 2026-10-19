@@ -8,7 +8,7 @@ import pytest
 
 from xml_gen_iterm2.model import Kind, Profile, Serial
 from xml_gen_iterm2.parse import ConfigError, parse_bytes, parse_file
-from xml_gen_iterm2.render import bash_c, picocom_script, render, to_json
+from xml_gen_iterm2.render import bash_c, picocom_script, render, to_json, virsh_script
 
 from conftest import EXAMPLE, EXPECTED
 
@@ -190,3 +190,43 @@ def test_picocom_script_refuses_busy_port_and_pauses_on_failure() -> None:
     assert 'picocom -b 1500000 --quiet "$dev" && exit' in script
     assert script.endswith("read -r _")
     assert "'" not in script  # stays a single, readable level of quoting in the iTerm2 command
+
+
+def test_virsh_console_runs_on_hypervisor() -> None:
+    p = _render(
+        '<host id="hv" name="hv" ip="10.0.0.1" users="admin root"/>'
+        '<host name="vm" ip="10.0.0.9" users="root human" hypervisor="hv" virsh-domain="vmaster.fritz.box"/>'
+    )
+    console = p["vm console via hv"]
+    assert console.kind is Kind.VIRSH
+    assert console.tags == ("virsh",)
+    args = shlex.split(console.command)
+    assert args[:-1] == ["ssh", "-q", "-t", "admin@10.0.0.1"]
+    assert args[-1] == virsh_script("vmaster.fritz.box")
+    assert [n for n in p if "console" in n] == ["vm console via hv"]  # one per VM, not per user
+    assert p["vm root"].command == "ssh -q root@10.0.0.9"  # VM ssh stays direct
+    doc = {x["Name"]: x for x in json.loads(to_json(list(p.values())))["Profiles"]}
+    assert doc["vm console via hv"]["Close Sessions On End"] == 1
+
+
+def test_virsh_hypervisor_reached_like_any_host() -> None:
+    lans = (
+        '<lan id="home" subnets="10.0.0.0/24"/>'
+        '<lan id="beach" subnets="10.9.0.0/24">'
+        '<host name="gw" ip="10.9.0.1" tailnet="100.64.0.1"><host id="hv" name="hv" ip="10.9.0.2"/></host>'
+        '<host name="vm" ip="10.9.0.9" hypervisor="hv" virsh-domain="d"/>'
+        "</lan>"
+    )
+    cfg = parse_bytes(f"<profiles>{OPTS}{lans}</profiles>".encode())
+    at_home = {x.name: x for x in render(cfg, "home")}["vm console via hv"]
+    assert "-o ProxyCommand='ssh -q -W %h:%p root@100.64.0.1' -t root@10.9.0.2" in at_home.command
+    assert not at_home.away
+    at_beach = {x.name: x for x in render(cfg, "beach")}["vm console via hv"]
+    assert "root@10.9.0.1' -t root@10.9.0.2" in at_beach.command
+
+
+def test_virsh_script() -> None:
+    assert (
+        virsh_script("a b")
+        == "dom='a b'; virsh console \"$dom\" && exit; " + 'printf "\\nPress Enter to close... "; read -r _'
+    )

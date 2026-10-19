@@ -7,7 +7,7 @@ from rich.text import Text
 from rich.tree import Tree
 
 from xml_gen_iterm2.model import DEFAULT_PORT, Config, Group, Host, Kind, Profile
-from xml_gen_iterm2.render import Chain, extend, host_profiles, is_away, reachable
+from xml_gen_iterm2.render import Chain, Hypervisors, extend, host_profiles, index_hosts, is_away, reachable
 from xml_gen_iterm2.where import Detection
 
 _KIND_STYLE: dict[Kind, tuple[str, str]] = {
@@ -15,10 +15,11 @@ _KIND_STYLE: dict[Kind, tuple[str, str]] = {
     Kind.CONSOLE: ("🖥 ", "magenta"),
     Kind.SERIAL: ("🔌", "yellow"),
     Kind.WOL: ("⏰", "cyan"),
+    Kind.VIRSH: ("📺", "bright_magenta"),
 }
 
 
-def _host_label(host: Host, chain: Chain, *, away: bool, serial_target: bool = False) -> str:
+def _host_label(host: Host, chain: Chain, hyps: Hypervisors, *, away: bool, serial_target: bool = False) -> str:
     users = ",".join(host.users)
     port = f":{host.port}" if host.port != DEFAULT_PORT else ""
     addrs = " ".join(a for a in (host.ip, host.tailnet and f"[dim](tailnet {host.tailnet})[/dim]") if a)
@@ -28,6 +29,8 @@ def _host_label(host: Host, chain: Chain, *, away: bool, serial_target: bool = F
         label += f" [dim]via {hops}[/dim]"
         if not reachable(chain, away=away):
             label += " [bold yellow]⚠ unreachable from here?[/]"
+    if host.hypervisor and host.hypervisor in hyps:
+        label += f" [dim]🖥 on {escape(hyps[host.hypervisor][0].name)} ({escape(host.virsh_domain or '')})[/dim]"
     if serial_target:
         label = f"[yellow]⇄[/] {label}"
     if host.note:
@@ -45,28 +48,36 @@ def _profile_label(p: Profile) -> Text:
 
 
 def _add_host(
-    parent: Tree, host: Host, chain: Chain, config: Config, *, away: bool, serial_target: bool = False
+    parent: Tree,
+    host: Host,
+    chain: Chain,
+    config: Config,
+    hyps: Hypervisors,
+    *,
+    away: bool,
+    serial_target: bool = False,
 ) -> int:
-    node = parent.add(_host_label(host, chain, away=away, serial_target=serial_target))
-    profiles = host_profiles(host, chain, config.defaults, away=away)
+    node = parent.add(_host_label(host, chain, hyps, away=away, serial_target=serial_target))
+    profiles = host_profiles(host, chain, config.defaults, away=away, hypervisors=hyps)
     for p in profiles:
         node.add(_profile_label(p))
     count = len(profiles)
     for serial in host.serials:
         if serial.target is not None:
-            count += _add_host(node, serial.target, chain, config, away=away, serial_target=True)
+            count += _add_host(node, serial.target, chain, config, hyps, away=away, serial_target=True)
     for sub in host.hosts:
-        count += _add_host(node, sub, extend(chain, host, away=away), config, away=away)
+        count += _add_host(node, sub, extend(chain, host, away=away), config, hyps, away=away)
     return count
 
 
-def _add_items(parent: Tree, items: tuple[Group | Host, ...], config: Config, *, away: bool) -> int:
+def _add_items(parent: Tree, items: tuple[Group | Host, ...], config: Config, hyps: Hypervisors, *, away: bool) -> int:
     count = 0
     for item in items:
         if isinstance(item, Group):
-            count += _add_items(parent.add(f"[bold]📁 {escape(item.name)}[/]"), item.children, config, away=away)
+            branch = parent.add(f"[bold]📁 {escape(item.name)}[/]")
+            count += _add_items(branch, item.children, config, hyps, away=away)
         else:
-            count += _add_host(parent, item, (), config, away=away)
+            count += _add_host(parent, item, (), config, hyps, away=away)
     return count
 
 
@@ -77,6 +88,7 @@ def build_tree(config: Config, source: str, where: Detection) -> tuple[Tree, int
     else:
         here = f"📍 [bold yellow]away from all lans[/] [dim]({escape(where.reason)})[/dim]"
     root = Tree(f"[bold]{escape(source)}[/]  {here}")
+    hyps = index_hosts(config, where.lan_id)
     count = 0
     for lan in config.lans:
         away = is_away(lan, where.lan_id)
@@ -89,5 +101,5 @@ def build_tree(config: Config, source: str, where: Detection) -> tuple[Tree, int
             elif away:
                 label += " [dim italic](away)[/]"
             branch = root.add(label)
-        count += _add_items(branch, lan.children, config, away=away)
+        count += _add_items(branch, lan.children, config, hyps, away=away)
     return root, count

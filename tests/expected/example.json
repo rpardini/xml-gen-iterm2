@@ -141,6 +141,41 @@
             "Command": "ssh -o GlobalKnownHostsFile=/dev/null -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no -A -X -Y alice@100.64.0.30"
         },
         {
+            "Name": "Test VM root",
+            "Guid": "be42aa53-1fe2-508a-8891-a7759732ac55",
+            "Custom Command": "Yes",
+            "Badge Text": "Test VM root",
+            "Tags": [
+                "Home/work",
+                "workstation"
+            ],
+            "Command": "ssh -o GlobalKnownHostsFile=/dev/null -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no -A -X -Y root@192.0.2.40"
+        },
+        {
+            "Name": "Test VM alice",
+            "Guid": "2717d3cd-c9bc-5d16-b99a-259a960b0468",
+            "Custom Command": "Yes",
+            "Badge Text": "Test VM alice",
+            "Tags": [
+                "Home/work",
+                "workstation"
+            ],
+            "Command": "ssh -o GlobalKnownHostsFile=/dev/null -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no -A -X -Y alice@192.0.2.40"
+        },
+        {
+            "Name": "Test VM console via Laptop",
+            "Guid": "d1be7b31-0e6a-53b0-819f-25e5b3c84007",
+            "Custom Command": "Yes",
+            "Badge Text": "Test VM console via Laptop",
+            "Tags": [
+                "Home/work",
+                "workstation",
+                "virsh"
+            ],
+            "Command": "ssh -o GlobalKnownHostsFile=/dev/null -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no -A -X -Y -t root@192.0.2.19 'dom=testvm; virsh console \"$dom\" && exit; printf \"\\nPress Enter to close... \"; read -r _'",
+            "Close Sessions On End": 1
+        },
+        {
             "Name": "Desktop runner tailnet",
             "Guid": "2d2360cf-4b7c-55f2-8a11-b6a25936912f",
             "Custom Command": "Yes",

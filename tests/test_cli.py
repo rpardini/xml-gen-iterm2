@@ -14,7 +14,7 @@ def test_stdout_prints_json_and_tree() -> None:
     result = CliRunner().invoke(main, [str(EXAMPLE), "--stdout", "--lan", "home"])
     assert result.exit_code == 0, result.output
     assert "you are in: home" in result.stderr
-    assert len(json.loads(result.stdout)["Profiles"]) == 25
+    assert len(json.loads(result.stdout)["Profiles"]) == 28
 
 
 def test_write_then_check(tmp_path: Path) -> None:

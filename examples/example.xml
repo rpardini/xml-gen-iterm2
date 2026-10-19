@@ -11,7 +11,7 @@
                 <host name="Board A" ip="192.0.2.10" mac="00:11:22:33:44:aa"/>  <!-- mac alone: metadata only -->
 
                 <!-- several users: one profile per user, user appended to the name; wol="true" (+ mac) adds WOL profiles -->
-                <host name="Laptop" ip="192.0.2.19" mac="00:11:22:33:44:55" wol="true" users="root alice">
+                <host id="laptop" name="Laptop" ip="192.0.2.19" mac="00:11:22:33:44:55" wol="true" users="root alice">
                     <!-- extra explicit ssh profile -->
                     <ssh name="Laptop runner" user="runner" port="2222"/>
 
@@ -32,6 +32,8 @@
             <group name="work" user="alice" tags="workstation">
                 <!-- LAN + tailnet in one go -->
                 <host name="Desktop" ip="192.0.2.30" tailnet="100.64.0.30"/>
+                <!-- libvirt VM bridged on the LAN: direct ssh, plus a virsh console run on its hypervisor -->
+                <host name="Test VM" ip="192.0.2.40" users="root alice" hypervisor="laptop" virsh-domain="testvm"/>
                 <!-- tailnet only, non-default port -->
                 <host name="Desktop runner" tailnet="100.64.0.30" user="root" port="22222"/>
             </group>

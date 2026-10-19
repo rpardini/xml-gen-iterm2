@@ -79,6 +79,9 @@ class Host:
     tailnet: str | None = None
     mac: str | None = None
     wol: bool = False  # emit "<name> WOL" profiles (needs mac + ip)
+    id: str | None = None  # for references from other hosts (e.g. hypervisor=)
+    hypervisor: str | None = None  # id of the host running this VM under libvirt
+    virsh_domain: str | None = None
     ipv6: str | None = None
     note: str | None = None
     ssh: tuple[SshEntry, ...] = ()
@@ -126,6 +129,7 @@ class Kind(StrEnum):
     CONSOLE = "console"
     SERIAL = "serial"
     WOL = "wol"
+    VIRSH = "virsh"
 
 
 @dataclass(frozen=True)
