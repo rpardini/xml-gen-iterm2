@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Any
 
 from xml_gen_iterm2.kube import KubeContext, KubeDiscovery
+from xml_gen_iterm2.lima import LimaDiscovery, LimaVm
 from xml_gen_iterm2.model import (
     DEFAULT_PORT,
     Config,
@@ -245,17 +246,29 @@ def walk_hosts(config: Config, current: str | None = None) -> Iterator[tuple[Hos
         yield from children(lan.children, is_away(lan, current))
 
 
-def local_profiles(loc: Local, contexts: tuple[KubeContext, ...] = ()) -> list[Profile]:
-    """The plain local shell, then one profile per discovered kube context (pinned via KUBECONFIG overlay)."""
+def _vm_profiles(loc: Local, vm: LimaVm) -> list[Profile]:
+    base = f"{loc.name} {vm.flavor} {vm.display}"
+    tags = (*loc.tags, vm.flavor)
+    return [
+        Profile(base, vm.command(root=False), tags, Kind.LIMA, badge=vm.display),
+        Profile(f"{base} root", vm.command(root=True), (*tags, "root"), Kind.LIMA, badge=f"{vm.display} root"),
+    ]
+
+
+def local_profiles(loc: Local, contexts: tuple[KubeContext, ...] = (), vms: tuple[LimaVm, ...] = ()) -> list[Profile]:
+    """The plain local shell, then a profile per kube context (KUBECONFIG overlay), then per Lima/Colima VM."""
     tags = tuple(dict.fromkeys((*loc.tags, "k8s")))
     return [
         Profile(loc.name, "", loc.tags, Kind.LOCAL, hotkey=loc.hotkey),
         *(Profile(f"{loc.name} k8s context {c.display}", c.command, tags, Kind.KUBE, badge=c.name) for c in contexts),
+        *(p for vm in vms for p in _vm_profiles(loc, vm)),
     ]
 
 
-def render(config: Config, current: str | None = None, kube: KubeDiscovery | None = None) -> list[Profile]:
-    """`current`: id of the LAN we're in (None = away from all of them). `kube`: discovered contexts per <local>."""
+def render(
+    config: Config, current: str | None = None, kube: KubeDiscovery | None = None, lima: LimaDiscovery | None = None
+) -> list[Profile]:
+    """`current`: id of the LAN we're in (None = away from all of them). `kube`/`lima`: discovered per <local>."""
     d = config.defaults
     hyps = index_hosts(config, current)
     profiles = [
@@ -263,7 +276,11 @@ def render(config: Config, current: str | None = None, kube: KubeDiscovery | Non
         for host, chain, away in walk_hosts(config, current)
         for p in host_profiles(host, chain, d, away=away, hypervisors=hyps)
     ]
-    profiles += [p for loc in config.locals for p in local_profiles(loc, (kube or {}).get(loc.name, ()))]
+    profiles += [
+        p
+        for loc in config.locals
+        for p in local_profiles(loc, (kube or {}).get(loc.name, ()), (lima or {}).get(loc.name, ()))
+    ]
     if dupes := sorted(name for name, n in Counter(p.name for p in profiles).items() if n > 1):
         raise ConfigError(f"duplicate profile name(s): {', '.join(map(repr, dupes))}")
     by_key: dict[tuple[int, int], Profile] = {}

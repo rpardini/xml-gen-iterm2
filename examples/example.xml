@@ -3,8 +3,9 @@
 <profiles>
     <defaults user="root" ssh-auth-sock="~/.gnupg/S.gpg-agent.ssh"/>
 
-    <!-- plain local shell; F13 drops it down Quake-style (style defaults to quake) -->
-    <local name="Local" hotkey="F13"/>
+    <!-- plain local shell; F13 drops it down Quake-style (style defaults to quake).
+         lima/colima: user + root ssh profiles for each running VM (found with limactl) -->
+    <local name="Local" hotkey="F13" lima="true" colima="true"/>
 
     <!-- subnets: the generator detects which lan you're in from your own addresses (override: the lan CLI option) -->
     <lan id="home" subnets="192.0.2.0/24 2001:db8:1::/64">

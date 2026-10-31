@@ -50,7 +50,7 @@ See [`examples/example.xml`](examples/example.xml) for a working example of ever
 | `<host>`        | `name`, `ip` and/or `tailnet`, `user`/`users`, `port`, `tags`, `mac`, `wol`, `id`, `hypervisor` + `virsh-domain`, `hotkey`, `hotkey-user`, `style`, `ipv6`, `note` | one ssh profile per user × address                           |
 | `<ssh>`         | `name`, `user`, `port`                                                              | one extra ssh profile per address                            |
 | `<serial>`      | `dev`, `baud`, `user`, `args`, `name`                                               | `<target> serial via <host>`: `ssh -t host` + picocom wrapper |
-| `<local>`       | `name` (Local), `hotkey`, `style`, `tags`, `kube`; only directly under `<profiles>` | a plain local login-shell profile (tag `local`)              |
+| `<local>`       | `name` (Local), `hotkey`, `style`, `tags`, `kube`, `lima`, `colima`; only directly under `<profiles>` | a plain local login-shell profile (tag `local`)              |
 | `<oci-console>` | `connection` + `instance`, or `paste` (the raw string from OCI's web console)       | `<host> CONSOLE` (tag `ociConsole`)                          |
 
 Rules:
@@ -82,6 +82,18 @@ Rules:
     overrides it), only when it writes the output (not with `--stdout` or `--check`), and removes stale ones.
   - **Safety:** your kubeconfigs are only read, never written, and their contents are never logged.
   - **Re-run** the generator after adding or removing contexts.
+- **Lima and Colima VMs**: `<local lima="true" colima="true">` (both default `false`) adds two ssh profiles for every
+  *running* VM, found with `limactl list --json` (Colima: `LIMA_HOME=~/.colima/_lima`, instances `colima` and
+  `colima-<profile>`): `<local> lima <vm>` as the VM's normal user and `<local> lima <vm> root` (tags `local`,
+  `lima`, `root`). Colima names are `<local> colima default` / `<local> colima <profile>`.
+  - Both run `ssh -F <instance ssh.config> -o ControlMaster=no -o ControlPath=none -o BatchMode=no [-l root] <host>`:
+    a new connection every time, so `-l root` really logs in as root (a multiplexed connection would silently reuse
+    the user's session). Forwarding and other options come from Lima's ssh.config.
+  - **Root needs guest setup:** Lima only authorizes its key for the normal user, so the root profile fails with
+    `Permission denied (publickey)` until the guest allows it, e.g. as a Lima `provision` script (`mode: system`):
+    `install -d -m700 /root/.ssh && cat /home/*/.ssh/authorized_keys >> /root/.ssh/authorized_keys`, plus
+    `PermitRootLogin prohibit-password` in an sshd drop-in and an sshd reload.
+  - **Re-run** the generator after starting or stopping VMs. A missing `limactl` only logs a warning.
 - **Serial sessions** close when picocom quits normally, rather than restarting. picocom locks the port, so the
   wrapper checks for a busy device first (`fuser`), shows who holds it, and waits for Enter. It also waits for Enter
   if picocom fails, so the error stays visible. virsh consoles behave the same way: they close on Ctrl+], and wait

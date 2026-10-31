@@ -151,6 +151,8 @@ class Local:
     tags: tuple[str, ...]
     hotkey: Hotkey | None = None
     kube: tuple[str, ...] = ()  # kubeconfig paths/globs; one extra profile per context found
+    lima: bool = False  # user + root ssh profiles for every running Lima VM
+    colima: bool = False  # same for Colima VMs
 
 
 class Kind(StrEnum):
@@ -161,6 +163,7 @@ class Kind(StrEnum):
     VIRSH = "virsh"
     LOCAL = "local"
     KUBE = "kube"
+    LIMA = "lima"
 
 
 @dataclass(frozen=True)

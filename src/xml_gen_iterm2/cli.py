@@ -15,6 +15,7 @@ from rich.syntax import Syntax
 
 from xml_gen_iterm2 import log as logmod
 from xml_gen_iterm2.kube import discover_all, sync_overlays
+from xml_gen_iterm2.lima import discover_all as discover_lima
 from xml_gen_iterm2.log import log
 from xml_gen_iterm2.model import Config
 from xml_gen_iterm2.parse import ConfigError, parse_file
@@ -139,13 +140,14 @@ def main(
         cfg = parse_file(config)
         where = _where(cfg, lan_override)
         kube = discover_all(cfg, config.resolve().parent)
-        profiles = render(cfg, where.lan_id, kube)
+        lima = discover_lima(cfg)
+        profiles = render(cfg, where.lan_id, kube, lima)
     except ConfigError as e:
         log.error(f"[bold red]{escape(str(config))}[/]: {escape(str(e))}")
         sys.exit(1)
 
     if not no_tree:
-        tree, _ = build_tree(cfg, _tilde(config), where, kube)
+        tree, _ = build_tree(cfg, _tilde(config), where, kube, lima)
         console.print(tree)
     log.info(f"{len(profiles)} profiles from {sum(1 for _ in walk_hosts(cfg))} hosts")
 

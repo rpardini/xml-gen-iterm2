@@ -39,7 +39,7 @@ _NS_F1_FUNCTION_KEY = 0xF704  # NSF1FunctionKey; F(n) = this + n - 1
 _MODIFIERS = {"shift": 1 << 17, "ctrl": 1 << 18, "opt": 1 << 19, "cmd": 1 << 20}
 _ATTRS: dict[str, frozenset[str]] = {
     "profiles": frozenset(),
-    "local": frozenset({"name", "hotkey", "style", "tags", "kube"}),
+    "local": frozenset({"name", "hotkey", "style", "tags", "kube", "lima", "colima"}),
     "defaults": frozenset({"user", "ssh-opts", "ssh-auth-sock", "wol-cmd", "kube-overlay-dir"}),
     "lan": frozenset({"id", "subnets"}),
     "group": frozenset({"name", "user", "users", "port", "tags"}),
@@ -169,6 +169,8 @@ def _parse_local(node: _Node) -> Local:
         tags=_dedupe(("local", *node.attrs.get("tags", "").split())),
         hotkey=_parse_hotkey(node),
         kube=tuple(node.attrs.get("kube", "").split()),
+        lima=_bool(node, "lima"),
+        colima=_bool(node, "colima"),
     )
 
 

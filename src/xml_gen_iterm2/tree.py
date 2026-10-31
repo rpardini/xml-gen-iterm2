@@ -7,6 +7,7 @@ from rich.text import Text
 from rich.tree import Tree
 
 from xml_gen_iterm2.kube import KubeDiscovery
+from xml_gen_iterm2.lima import LimaDiscovery
 from xml_gen_iterm2.model import DEFAULT_PORT, Config, Group, Host, Kind, Profile
 from xml_gen_iterm2.render import (
     Chain,
@@ -28,6 +29,7 @@ _KIND_STYLE: dict[Kind, tuple[str, str]] = {
     Kind.VIRSH: ("📺", "bright_magenta"),
     Kind.LOCAL: ("💻", "bright_white"),
     Kind.KUBE: ("☸ ", "blue"),
+    Kind.LIMA: ("🐮", "bright_cyan"),
 }
 
 
@@ -95,7 +97,9 @@ def _add_items(parent: Tree, items: tuple[Group | Host, ...], config: Config, hy
     return count
 
 
-def build_tree(config: Config, source: str, where: Detection, kube: KubeDiscovery | None = None) -> tuple[Tree, int]:
+def build_tree(
+    config: Config, source: str, where: Detection, kube: KubeDiscovery | None = None, lima: LimaDiscovery | None = None
+) -> tuple[Tree, int]:
     """Returns the tree and the number of profiles it shows."""
     if where.lan_id:
         here = f"📍 you are in: [bold green]{escape(where.lan_id)}[/] [dim]({escape(where.reason)})[/dim]"
@@ -108,11 +112,14 @@ def build_tree(config: Config, source: str, where: Detection, kube: KubeDiscover
         branch = root.add("[bold]💻 local[/]")
         for loc in config.locals:
             contexts = (kube or {}).get(loc.name, ())
-            plain, *kubes = local_profiles(loc, contexts)
+            vms = (lima or {}).get(loc.name, ())
+            plain, *rest = local_profiles(loc, contexts, vms)
             node = branch.add(_profile_label(plain))
-            for p, ctx in zip(kubes, contexts, strict=True):
+            for p, ctx in zip(rest, contexts, strict=False):
                 node.add(_profile_label(p).append(f"  ({ctx.file.name})", style="dim"))
-            count += 1 + len(kubes)
+            for p in rest[len(contexts) :]:
+                node.add(_profile_label(p))
+            count += 1 + len(rest)
     for lan in config.lans:
         away = is_away(lan, where.lan_id)
         branch = root
