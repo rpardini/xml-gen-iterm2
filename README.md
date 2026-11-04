@@ -86,9 +86,10 @@ Rules:
   *running* VM, found with `limactl list --json` (Colima: `LIMA_HOME=~/.colima/_lima`, instances `colima` and
   `colima-<profile>`): `<local> lima <vm>` as the VM's normal user and `<local> lima <vm> root` (tags `local`,
   `lima`, `root`). Colima names are `<local> colima default` / `<local> colima <profile>`.
-  - Both run `ssh -F <instance ssh.config> -o ControlMaster=no -o ControlPath=none -o BatchMode=no [-l root] <host>`:
-    a new connection every time, so `-l root` really logs in as root (a multiplexed connection would silently reuse
-    the user's session). Forwarding and other options come from Lima's ssh.config.
+  - Both run `ssh -F <instance ssh.config> -o ControlMaster=no -o ControlPath=none -o BatchMode=no -A -X -Y [-l root]
+    <host>`: a new connection every time, so `-l root` really logs in as root (a multiplexed connection would silently
+    reuse the user's session). Agent and X11 forwarding are forced on, since Lima's ssh.config doesn't enable them;
+    other options come from it.
   - **Root needs guest setup:** Lima only authorizes its key for the normal user, so the root profile fails with
     `Permission denied (publickey)` until the guest allows it, e.g. as a Lima `provision` script (`mode: system`):
     `install -d -m700 /root/.ssh && cat /home/*/.ssh/authorized_keys >> /root/.ssh/authorized_keys`, plus

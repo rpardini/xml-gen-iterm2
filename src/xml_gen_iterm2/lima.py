@@ -18,7 +18,7 @@ from xml_gen_iterm2.log import log
 from xml_gen_iterm2.model import Config
 
 COLIMA_HOME = "~/.colima/_lima"
-_SSH_OPTS = ("-o", "ControlMaster=no", "-o", "ControlPath=none", "-o", "BatchMode=no")
+_SSH_OPTS = ("-o", "ControlMaster=no", "-o", "ControlPath=none", "-o", "BatchMode=no", "-A", "-X", "-Y")
 
 
 @dataclass(frozen=True)

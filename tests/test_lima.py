@@ -59,6 +59,7 @@ def test_profiles_for_running_vms(fake_limactl: list[str | None]) -> None:
     assert "-l root" in root.command
     for p in (user, root):
         assert "ControlMaster=no" in p.command and "ControlPath=none" in p.command
+        assert {"-A", "-X", "-Y"} <= set(p.command.split())
         assert p.command.endswith(" lima-dev")
     assert "root" in root.tags and "root" not in user.tags and "lima" in user.tags
 
