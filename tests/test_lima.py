@@ -26,7 +26,10 @@ def fake_limactl(monkeypatch: pytest.MonkeyPatch) -> list[str | None]:
     """Canned `limactl list --json`; records LIMA_HOME of each call."""
     homes: list[str | None] = []
     by_home = {
-        None: [_vm("dev", port=61235), _vm("stopped", "Stopped", 0), _vm("colima-bogus"), _vm("no-port", port=0)],
+        None: [
+            *(_vm("dev", port=61235), _vm("fixed", "Stopped", 61236), _vm("random", "Stopped", 0)),
+            *(_vm("colima-bogus"), _vm("no-port", port=0)),
+        ],
         "colima": [_vm("colima"), _vm("colima-arm"), _vm("other")],
     }
 
@@ -44,12 +47,14 @@ def _cfg(attrs: str) -> str:
     return f'<profiles><local name="Local" {attrs}/></profiles>'
 
 
-def test_profiles_for_running_vms(fake_limactl: list[str | None]) -> None:
+def test_profiles_for_vms(fake_limactl: list[str | None]) -> None:
     cfg = parse_bytes(_cfg('lima="true" colima="true"').encode())
     profiles = {p.name: p for p in render(cfg, None, None, discover_all(cfg))}
     assert [n for n in profiles if n != "Local"] == [
         "Local lima dev",
         "Local lima dev root",
+        "Local lima fixed",  # stopped, but with a fixed port
+        "Local lima fixed root",
         "Local lima colima-bogus",
         "Local lima colima-bogus root",
         "Local colima default",

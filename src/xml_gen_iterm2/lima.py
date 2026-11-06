@@ -1,4 +1,4 @@
-"""Lima and Colima VM discovery for `<local lima="true" colima="true">`: ssh profiles for every running VM.
+"""Lima and Colima VM discovery for `<local lima="true" colima="true">`: ssh profiles for every VM.
 
 Colima is a Lima instance living in its own LIMA_HOME, so both are found with `limactl list --json`. Each VM gets a
 login as its normal user and a direct login as root, built from the JSON (address, port, key, user) rather than Lima's
@@ -78,13 +78,19 @@ def discover_flavor(flavor: str) -> tuple[LimaVm, ...]:
     vms = []
     for inst in list_instances(COLIMA_HOME if colima else None):
         name = inst.get("name")
-        if not isinstance(name, str) or inst.get("status") != "Running":
+        if not isinstance(name, str):
             continue
         if colima and not (name == "colima" or name.startswith("colima-")):
             continue
+        # Any status: a stopped (or still starting) VM reports its configured port, so a VM with a fixed ssh port
+        # keeps its profiles across reboots. One with a random port (localPort 0, eg. Colima's) has none until it runs.
         address, port, identity = inst.get("sshAddress"), inst.get("sshLocalPort"), inst.get("IdentityFile")
         if not (isinstance(address, str) and isinstance(port, int) and port > 0 and isinstance(identity, str)):
-            log.warning(f"lima: no ssh address/port/key for {name}; skipping")
+            status = inst.get("status")
+            if status == "Running":
+                log.warning(f"lima: no ssh address/port/key for {name}; skipping")
+            else:
+                log.info(f"lima: {name} is {status} and has no fixed ssh port; skipping")
             continue
         display = (name.removeprefix("colima-") if name != "colima" else "default") if colima else name
         vms.append(LimaVm(name, display, flavor, address, port, Path(identity), _user(inst)))

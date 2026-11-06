@@ -83,7 +83,7 @@ Rules:
   - **Safety:** your kubeconfigs are only read, never written, and their contents are never logged.
   - **Re-run** the generator after adding or removing contexts.
 - **Lima and Colima VMs**: `<local lima="true" colima="true">` (both default `false`) adds two ssh profiles for every
-  *running* VM, found with `limactl list --json` (Colima: `LIMA_HOME=~/.colima/_lima`, instances `colima` and
+  VM, found with `limactl list --json` (Colima: `LIMA_HOME=~/.colima/_lima`, instances `colima` and
   `colima-<profile>`): `<local> lima <vm>` as the VM's normal user and `<local> lima <vm> root` (tags `local`,
   `lima`, `root`). Colima names are `<local> colima default` / `<local> colima <profile>`.
   - The ssh commands are built from `limactl list --json` (`sshAddress`, `sshLocalPort`, `IdentityFile`,
@@ -94,7 +94,11 @@ Rules:
   - **Root:** `ssh … -i <Lima key> -p <port> root@127.0.0.1`, without `IdentitiesOnly`, so your agent keys are offered
     too. Lima only authorizes its key for the normal user, so the guest must authorize one of them for root, eg. a
     Lima `provision` script (`mode: system`) running `ssh-import-id gh:<you>`.
-  - **Re-run** the generator after starting or stopping VMs. A missing `limactl` only logs a warning.
+  - **Stopped VMs** keep their profiles if their ssh port is fixed (`ssh.localPort`, eg. `limactl start
+    --ssh-port`), so they're there while VMs are still starting at login. A VM with a random port (`localPort: 0`, as
+    Colima's) only gets profiles while running.
+  - **Re-run** the generator after creating or deleting VMs, or starting random-port ones. A missing `limactl` only
+    logs a warning.
 - **Serial sessions** close when picocom quits normally, rather than restarting. picocom locks the port, so the
   wrapper checks for a busy device first (`fuser`), shows who holds it, and waits for Enter. It also waits for Enter
   if picocom fails, so the error stays visible. virsh consoles behave the same way: they close on Ctrl+], and wait
