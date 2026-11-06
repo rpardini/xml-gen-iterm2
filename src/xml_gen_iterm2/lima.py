@@ -1,12 +1,14 @@
 """Lima and Colima VM discovery for `<local lima="true" colima="true">`: ssh profiles for every running VM.
 
 Colima is a Lima instance living in its own LIMA_HOME, so both are found with `limactl list --json`. Each VM gets a
-login as its normal user and a direct login as root. Connections are never multiplexed (ControlMaster would silently
-ignore `-l root` and reuse the user's session). Root login needs the Lima key authorized for root inside the guest.
+login as its normal user and a direct login as root, built from the JSON (address, port, key, user) rather than Lima's
+ssh.config, whose `IdentitiesOnly yes` would hide agent keys from root. Connections are never multiplexed
+(ControlMaster would silently ignore the root login and reuse the user's session).
 """
 
 from __future__ import annotations
 
+import getpass
 import json
 import os
 import shlex
@@ -18,7 +20,12 @@ from xml_gen_iterm2.log import log
 from xml_gen_iterm2.model import Config
 
 COLIMA_HOME = "~/.colima/_lima"
-_SSH_OPTS = ("-o", "ControlMaster=no", "-o", "ControlPath=none", "-o", "BatchMode=no", "-A", "-X", "-Y")
+# Host key handling as in Lima's ssh.config (the key changes whenever a VM is recreated); never multiplexed.
+_SSH_OPTS = (
+    *("-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile=/dev/null"),
+    *("-o", "NoHostAuthenticationForLocalhost=yes", "-o", "ControlMaster=no", "-o", "ControlPath=none"),
+    *("-A", "-X", "-Y"),
+)
 
 
 @dataclass(frozen=True)
@@ -26,27 +33,28 @@ class LimaVm:
     name: str  # instance name as in `limactl list`
     display: str  # used in the profile name
     flavor: str  # "lima" or "colima"
-    ssh_config: Path
-    host: str  # Host alias inside ssh_config
+    address: str  # sshAddress, usually 127.0.0.1
+    port: int  # sshLocalPort
+    identity: Path  # Lima's own key, authorized for `user`
+    user: str
 
     def command(self, *, root: bool) -> str:
-        parts = ["/usr/bin/ssh", "-F", str(self.ssh_config), *_SSH_OPTS, *(["-l", "root"] if root else []), self.host]
+        # The user only gets Lima's key; root also gets agent keys (eg. from ssh-import-id), so no IdentitiesOnly.
+        ident = ["-i", str(self.identity), *([] if root else ["-o", "IdentitiesOnly=yes"])]
+        login = "root" if root else self.user
+        parts = ["/usr/bin/ssh", *_SSH_OPTS, *ident, "-p", str(self.port), f"{login}@{self.address}"]
         return " ".join(shlex.quote(p) for p in parts)
 
 
 LimaDiscovery = dict[str, tuple[LimaVm, ...]]  # <local> name -> its VMs
 
 
-def ssh_host(ssh_config: Path) -> str | None:
-    """The first `Host` alias in a Lima-generated ssh.config."""
-    try:
-        for line in ssh_config.read_text(encoding="utf-8").splitlines():
-            parts = line.split()
-            if len(parts) >= 2 and parts[0].lower() == "host":
-                return parts[1]
-    except (OSError, UnicodeDecodeError):
-        pass
-    return None
+def _user(inst: dict[str, object]) -> str:
+    """`config.user.name`; Lima defaults it to the local user name."""
+    cfg = inst.get("config")
+    user = cfg.get("user") if isinstance(cfg, dict) else None
+    name = user.get("name") if isinstance(user, dict) else None
+    return name if isinstance(name, str) and name else getpass.getuser()
 
 
 def list_instances(lima_home: str | None) -> list[dict[str, object]]:
@@ -69,17 +77,17 @@ def discover_flavor(flavor: str) -> tuple[LimaVm, ...]:
     colima = flavor == "colima"
     vms = []
     for inst in list_instances(COLIMA_HOME if colima else None):
-        name, cfg = inst.get("name"), inst.get("sshConfigFile")
-        if not isinstance(name, str) or not isinstance(cfg, str) or inst.get("status") != "Running":
+        name = inst.get("name")
+        if not isinstance(name, str) or inst.get("status") != "Running":
             continue
         if colima and not (name == "colima" or name.startswith("colima-")):
             continue
-        host = ssh_host(Path(cfg))
-        if host is None:
-            log.warning(f"lima: no Host in {cfg}; skipping {name}")
+        address, port, identity = inst.get("sshAddress"), inst.get("sshLocalPort"), inst.get("IdentityFile")
+        if not (isinstance(address, str) and isinstance(port, int) and port > 0 and isinstance(identity, str)):
+            log.warning(f"lima: no ssh address/port/key for {name}; skipping")
             continue
         display = (name.removeprefix("colima-") if name != "colima" else "default") if colima else name
-        vms.append(LimaVm(name, display, flavor, Path(cfg), host))
+        vms.append(LimaVm(name, display, flavor, address, port, Path(identity), _user(inst)))
     return tuple(vms)
 
 

@@ -86,14 +86,14 @@ Rules:
   *running* VM, found with `limactl list --json` (Colima: `LIMA_HOME=~/.colima/_lima`, instances `colima` and
   `colima-<profile>`): `<local> lima <vm>` as the VM's normal user and `<local> lima <vm> root` (tags `local`,
   `lima`, `root`). Colima names are `<local> colima default` / `<local> colima <profile>`.
-  - Both run `ssh -F <instance ssh.config> -o ControlMaster=no -o ControlPath=none -o BatchMode=no -A -X -Y [-l root]
-    <host>`: a new connection every time, so `-l root` really logs in as root (a multiplexed connection would silently
-    reuse the user's session). Agent and X11 forwarding are forced on, since Lima's ssh.config doesn't enable them;
-    other options come from it.
-  - **Root needs guest setup:** Lima only authorizes its key for the normal user, so the root profile fails with
-    `Permission denied (publickey)` until the guest allows it, e.g. as a Lima `provision` script (`mode: system`):
-    `install -d -m700 /root/.ssh && cat /home/*/.ssh/authorized_keys >> /root/.ssh/authorized_keys`, plus
-    `PermitRootLogin prohibit-password` in an sshd drop-in and an sshd reload.
+  - The ssh commands are built from `limactl list --json` (`sshAddress`, `sshLocalPort`, `IdentityFile`,
+    `config.user.name`), not from Lima's ssh.config. Both use `-A -X -Y`, Lima's host key handling and
+    `ControlMaster=no`, so every profile opens a new connection (with multiplexing, a root login would silently reuse
+    the user's session).
+  - **User:** `ssh … -i <Lima key> -o IdentitiesOnly=yes -p <port> <user>@127.0.0.1`.
+  - **Root:** `ssh … -i <Lima key> -p <port> root@127.0.0.1`, without `IdentitiesOnly`, so your agent keys are offered
+    too. Lima only authorizes its key for the normal user, so the guest must authorize one of them for root, eg. a
+    Lima `provision` script (`mode: system`) running `ssh-import-id gh:<you>`.
   - **Re-run** the generator after starting or stopping VMs. A missing `limactl` only logs a warning.
 - **Serial sessions** close when picocom quits normally, rather than restarting. picocom locks the port, so the
   wrapper checks for a busy device first (`fuser`), shows who holds it, and waits for Enter. It also waits for Enter

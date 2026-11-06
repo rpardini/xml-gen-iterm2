@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 import subprocess
-from pathlib import Path
 
 import pytest
 
@@ -11,20 +10,24 @@ from xml_gen_iterm2.parse import ConfigError, parse_bytes
 from xml_gen_iterm2.render import render
 
 
-def _vm(tmp_path: Path, name: str, status: str = "Running", host: str | None = None) -> dict[str, str]:
-    cfg = tmp_path / name / "ssh.config"
-    cfg.parent.mkdir(parents=True, exist_ok=True)
-    cfg.write_text(f"# generated\nHost {host or 'lima-' + name}\n  User tester\n")
-    return {"name": name, "status": status, "sshConfigFile": str(cfg)}
+def _vm(name: str, status: str = "Running", port: int = 60022) -> dict[str, object]:
+    return {
+        "name": name,
+        "status": status,
+        "sshAddress": "127.0.0.1",
+        "sshLocalPort": port,
+        "IdentityFile": "/lima/_config/user",
+        "config": {"user": {"name": "tester"}},
+    }
 
 
 @pytest.fixture
-def fake_limactl(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> list[str | None]:
+def fake_limactl(monkeypatch: pytest.MonkeyPatch) -> list[str | None]:
     """Canned `limactl list --json`; records LIMA_HOME of each call."""
     homes: list[str | None] = []
     by_home = {
-        None: [_vm(tmp_path, "dev"), _vm(tmp_path, "stopped", "Stopped"), _vm(tmp_path, "colima-bogus")],
-        "colima": [_vm(tmp_path, "colima"), _vm(tmp_path, "colima-arm"), _vm(tmp_path, "other")],
+        None: [_vm("dev", port=61235), _vm("stopped", "Stopped", 0), _vm("colima-bogus"), _vm("no-port", port=0)],
+        "colima": [_vm("colima"), _vm("colima-arm"), _vm("other")],
     }
 
     def run(cmd: list[str], env: dict[str, str], **_: object) -> subprocess.CompletedProcess[str]:
@@ -55,12 +58,12 @@ def test_profiles_for_running_vms(fake_limactl: list[str | None]) -> None:
         "Local colima arm root",
     ]
     user, root = profiles["Local lima dev"], profiles["Local lima dev root"]
-    assert "-l" not in user.command.split()
-    assert "-l root" in root.command
+    assert user.command.endswith(" -o IdentitiesOnly=yes -p 61235 tester@127.0.0.1")
+    assert root.command.endswith(" -i /lima/_config/user -p 61235 root@127.0.0.1")  # agent keys offered too
     for p in (user, root):
-        assert "ControlMaster=no" in p.command and "ControlPath=none" in p.command
-        assert {"-A", "-X", "-Y"} <= set(p.command.split())
-        assert p.command.endswith(" lima-dev")
+        words = p.command.split()
+        assert "-F" not in words and "ControlMaster=no" in words and "ControlPath=none" in words
+        assert {"-A", "-X", "-Y"} <= set(words)
     assert "root" in root.tags and "root" not in user.tags and "lima" in user.tags
 
 
