@@ -87,9 +87,9 @@ Rules:
   `colima-<profile>`): `<local> lima <vm>` as the VM's normal user and `<local> lima <vm> root` (tags `local`,
   `lima`, `root`). Colima names are `<local> colima default` / `<local> colima <profile>`.
   - The ssh commands are built from `limactl list --json` (`sshAddress`, `sshLocalPort`, `IdentityFile`,
-    `config.user.name`), not from Lima's ssh.config. Both use `-A -X -Y`, Lima's host key handling and
-    `ControlMaster=no`, so every profile opens a new connection (with multiplexing, a root login would silently reuse
-    the user's session).
+    `config.user.name`), not from Lima's ssh.config. Both forward the agent and X11 (`ForwardAgent`, `ForwardX11`,
+    `ForwardX11Trusted`), and use Lima's host key handling and `ControlMaster=no`, so every profile opens a new
+    connection (with multiplexing, a root login would silently reuse the user's session).
   - **User:** `ssh … -i <Lima key> -o IdentitiesOnly=yes -p <port> <user>@127.0.0.1`.
   - **Root:** `ssh … -i <Lima key> -p <port> root@127.0.0.1`, without `IdentitiesOnly`, so your agent keys are offered
     too. Lima only authorizes its key for the normal user, so the guest must authorize one of them for root, eg. a
@@ -97,6 +97,12 @@ Rules:
   - **Stopped VMs** keep their profiles if their ssh port is fixed (`ssh.localPort`, eg. `limactl start
     --ssh-port`), so they're there while VMs are still starting at login. A VM with a random port (`localPort: 0`, as
     Colima's) only gets profiles while running.
+  - **ssh config:** the generator also writes `~/.ssh/config.d/lima` (`<defaults lima-ssh-config="…">` overrides
+    it), only when it writes the output (not with `--stdout` or `--check`). It has a `Host lima-<vm>` (the VM's own
+    hostname) and `Host lima-<vm>-root` per fixed-port VM, with the same options as the profiles, so `ssh lima-<vm>`
+    and other tools work by name, eg. IntelliJ's remote development (host `lima-<vm>`, "OpenSSH config and
+    authentication agent"). Random-port VMs are left out, since their port changes on every start. Add it once, near
+    the top of `~/.ssh/config` (before any `Host *`): `Include ~/.ssh/config.d/lima`.
   - **Re-run** the generator after creating or deleting VMs, or starting random-port ones. A missing `limactl` only
     logs a warning.
 - **Serial sessions** close when picocom quits normally, rather than restarting. picocom locks the port, so the

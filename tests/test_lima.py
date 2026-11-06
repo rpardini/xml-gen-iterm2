@@ -5,19 +5,19 @@ import subprocess
 
 import pytest
 
-from xml_gen_iterm2.lima import discover_all
+from xml_gen_iterm2.lima import SSH_CONFIG_HEADER, discover_all, ssh_config
 from xml_gen_iterm2.parse import ConfigError, parse_bytes
 from xml_gen_iterm2.render import render
 
 
-def _vm(name: str, status: str = "Running", port: int = 60022) -> dict[str, object]:
+def _vm(name: str, status: str = "Running", port: int = 60022, *, fixed: bool = False) -> dict[str, object]:
     return {
         "name": name,
         "status": status,
         "sshAddress": "127.0.0.1",
         "sshLocalPort": port,
         "IdentityFile": "/lima/_config/user",
-        "config": {"user": {"name": "tester"}},
+        "config": {"user": {"name": "tester"}, "ssh": {"localPort": port if fixed else 0}},
     }
 
 
@@ -27,7 +27,8 @@ def fake_limactl(monkeypatch: pytest.MonkeyPatch) -> list[str | None]:
     homes: list[str | None] = []
     by_home = {
         None: [
-            *(_vm("dev", port=61235), _vm("fixed", "Stopped", 61236), _vm("random", "Stopped", 0)),
+            *(_vm("dev", port=61235, fixed=True), _vm("fixed", "Stopped", 61236, fixed=True)),
+            _vm("random", "Stopped", 0),
             *(_vm("colima-bogus"), _vm("no-port", port=0)),
         ],
         "colima": [_vm("colima"), _vm("colima-arm"), _vm("other")],
@@ -68,8 +69,25 @@ def test_profiles_for_vms(fake_limactl: list[str | None]) -> None:
     for p in (user, root):
         words = p.command.split()
         assert "-F" not in words and "ControlMaster=no" in words and "ControlPath=none" in words
-        assert {"-A", "-X", "-Y"} <= set(words)
+        assert {"ForwardAgent=yes", "ForwardX11=yes", "ForwardX11Trusted=yes"} <= set(words)
     assert "root" in root.tags and "root" not in user.tags and "lima" in user.tags
+
+
+def test_ssh_config(fake_limactl: list[str | None]) -> None:
+    cfg = parse_bytes(_cfg('lima="true" colima="true"').encode())
+    text = ssh_config(discover_all(cfg))
+    assert text.startswith(SSH_CONFIG_HEADER)
+    hosts = [line.split()[1] for line in text.splitlines() if line.startswith("Host ")]
+    # only fixed ports: not colima-bogus nor Colima's (random port), even though they get profiles
+    assert hosts == ["lima-dev", "lima-dev-root", "lima-fixed", "lima-fixed-root"]
+    user, root = text.split("\nHost ")[1:3]
+    assert "  Port 61235\n" in user and "  User tester\n" in user and "  IdentitiesOnly yes\n" in user
+    assert '  IdentityFile "/lima/_config/user"\n' in user and "  ForwardAgent yes\n" in user
+    assert "  User root\n" in root and "IdentitiesOnly" not in root  # agent keys offered too
+
+
+def test_ssh_config_without_vms() -> None:
+    assert ssh_config({}) == SSH_CONFIG_HEADER
 
 
 def test_off_by_default(fake_limactl: list[str | None]) -> None:

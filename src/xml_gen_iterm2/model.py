@@ -40,6 +40,7 @@ class Defaults:
     ssh_auth_sock: str = ""
     wol_cmd: str = "wakeonlan"
     kube_overlay_dir: str = "~/.kube/iterm2"
+    lima_ssh_config: str = "~/.ssh/config.d/lima"
 
 
 @dataclass(frozen=True)

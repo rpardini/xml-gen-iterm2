@@ -16,6 +16,7 @@ from rich.syntax import Syntax
 from xml_gen_iterm2 import log as logmod
 from xml_gen_iterm2.kube import discover_all, sync_overlays
 from xml_gen_iterm2.lima import discover_all as discover_lima
+from xml_gen_iterm2.lima import ssh_config as lima_ssh_config
 from xml_gen_iterm2.log import log
 from xml_gen_iterm2.model import Config
 from xml_gen_iterm2.parse import ConfigError, parse_file
@@ -168,6 +169,10 @@ def main(
 
     _write_atomic(output, content)
     log.info(f"wrote [bold]{output}[/]")
+    if any(loc.lima or loc.colima for loc in cfg.locals):
+        ssh_config = Path(cfg.defaults.lima_ssh_config).expanduser()
+        _write_atomic(ssh_config, lima_ssh_config(lima))
+        log.info(f"wrote [bold]{_tilde(ssh_config)}[/] (Include it from ~/.ssh/config)")
     overlay_dir = Path(cfg.defaults.kube_overlay_dir).expanduser()
     written, removed = sync_overlays(kube, overlay_dir)
     if written or removed:

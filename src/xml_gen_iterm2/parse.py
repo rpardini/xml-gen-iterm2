@@ -40,7 +40,7 @@ _MODIFIERS = {"shift": 1 << 17, "ctrl": 1 << 18, "opt": 1 << 19, "cmd": 1 << 20}
 _ATTRS: dict[str, frozenset[str]] = {
     "profiles": frozenset(),
     "local": frozenset({"name", "hotkey", "style", "tags", "kube", "lima", "colima"}),
-    "defaults": frozenset({"user", "ssh-opts", "ssh-auth-sock", "wol-cmd", "kube-overlay-dir"}),
+    "defaults": frozenset({"user", "ssh-opts", "ssh-auth-sock", "wol-cmd", "kube-overlay-dir", "lima-ssh-config"}),
     "lan": frozenset({"id", "subnets"}),
     "group": frozenset({"name", "user", "users", "port", "tags"}),
     "host": _HOST_ATTRS,
@@ -383,6 +383,7 @@ def parse_bytes(data: bytes) -> Config:
             ssh_auth_sock=d.attrs.get("ssh-auth-sock", defaults.ssh_auth_sock).strip(),
             wol_cmd=d.attrs.get("wol-cmd", defaults.wol_cmd).strip() or defaults.wol_cmd,
             kube_overlay_dir=d.attrs.get("kube-overlay-dir", "").strip() or defaults.kube_overlay_dir,
+            lima_ssh_config=d.attrs.get("lima-ssh-config", "").strip() or defaults.lima_ssh_config,
         )
 
     base = _Ctx(path=(), users=(defaults.user,), port=DEFAULT_PORT, tags=())
